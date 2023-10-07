@@ -1,5 +1,5 @@
 /* Message list test for ASCII character set.
-   Copyright (C) 2001-2002, 2005-2006 Free Software Foundation, Inc.
+   Copyright (C) 2001-2002, 2005-2006, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -34,6 +34,17 @@ is_ascii_string (const char *string)
 {
   for (; *string; string++)
     if (!c_isascii ((unsigned char) *string))
+      return false;
+  return true;
+}
+
+bool
+is_ascii_string_desc (string_desc_t string)
+{
+  size_t len = string_desc_length (string);
+  size_t i;
+  for (i = 0; i < len; i++)
+    if (!c_isascii ((unsigned char) string_desc_char_at (string, i)))
       return false;
   return true;
 }

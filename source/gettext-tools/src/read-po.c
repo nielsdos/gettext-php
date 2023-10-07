@@ -1,5 +1,5 @@
 /* Reading PO files.
-   Copyright (C) 1995-1996, 1998, 2000-2006 Free Software Foundation, Inc.
+   Copyright (C) 1995-1996, 1998, 2000-2006, 2023 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,7 +12,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -34,9 +34,10 @@
    abstract_catalog_reader_class_ty methods.  */
 static void
 po_parse (abstract_catalog_reader_ty *this, FILE *fp,
-          const char *real_filename, const char *logical_filename)
+          const char *real_filename, const char *logical_filename,
+          bool is_pot_role)
 {
-  lex_start (fp, real_filename, logical_filename);
+  lex_start (fp, real_filename, logical_filename, is_pot_role);
   po_gram_parse ();
   lex_end ();
 }

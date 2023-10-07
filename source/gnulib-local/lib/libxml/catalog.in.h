@@ -1,3 +1,36 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * Author: Daniel Veillard
+ */
+
 /**
  * Summary: interfaces to the Catalog handling system
  * Description: the catalog module implements the support for
@@ -8,10 +41,6 @@
  *
  * XML Catalogs Working Draft 06 August 2001
  * http://www.oasis-open.org/committees/entity/spec-2001-08-06.html
- *
- * Copy: See Copyright for the status of this software.
- *
- * Author: Daniel Veillard
  */
 
 #ifndef __XML_CATALOG_H__
@@ -68,111 +97,111 @@ typedef xmlCatalog *xmlCatalogPtr;
  */
 XMLPUBFUN xmlCatalogPtr XMLCALL
 		xmlNewCatalog		(int sgml);
-XMLPUBFUN xmlCatalogPtr XMLCALL	
+XMLPUBFUN xmlCatalogPtr XMLCALL
 		xmlLoadACatalog		(const char *filename);
-XMLPUBFUN xmlCatalogPtr XMLCALL	
+XMLPUBFUN xmlCatalogPtr XMLCALL
 		xmlLoadSGMLSuperCatalog	(const char *filename);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlConvertSGMLCatalog	(xmlCatalogPtr catal);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlACatalogAdd		(xmlCatalogPtr catal,
 					 const xmlChar *type,
 					 const xmlChar *orig,
 					 const xmlChar *replace);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlACatalogRemove	(xmlCatalogPtr catal,
 					 const xmlChar *value);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlACatalogResolve	(xmlCatalogPtr catal,
 					 const xmlChar *pubID,
 	                                 const xmlChar *sysID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlACatalogResolveSystem(xmlCatalogPtr catal,
 					 const xmlChar *sysID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlACatalogResolvePublic(xmlCatalogPtr catal,
 					 const xmlChar *pubID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlACatalogResolveURI	(xmlCatalogPtr catal,
 					 const xmlChar *URI);
 #ifdef LIBXML_OUTPUT_ENABLED
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlACatalogDump		(xmlCatalogPtr catal,
 					 FILE *out);
 #endif /* LIBXML_OUTPUT_ENABLED */
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlFreeCatalog		(xmlCatalogPtr catal);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlCatalogIsEmpty	(xmlCatalogPtr catal);
 
 /*
  * Global operations.
  */
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlInitializeCatalog	(void);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlLoadCatalog		(const char *filename);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlLoadCatalogs		(const char *paths);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlCatalogCleanup	(void);
 #ifdef LIBXML_OUTPUT_ENABLED
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlCatalogDump		(FILE *out);
 #endif /* LIBXML_OUTPUT_ENABLED */
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogResolve	(const xmlChar *pubID,
 	                                 const xmlChar *sysID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogResolveSystem	(const xmlChar *sysID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogResolvePublic	(const xmlChar *pubID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogResolveURI	(const xmlChar *URI);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlCatalogAdd		(const xmlChar *type,
 					 const xmlChar *orig,
 					 const xmlChar *replace);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlCatalogRemove	(const xmlChar *value);
-XMLPUBFUN xmlDocPtr XMLCALL	
+XMLPUBFUN xmlDocPtr XMLCALL
 		xmlParseCatalogFile	(const char *filename);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlCatalogConvert	(void);
 
 /*
  * Strictly minimal interfaces for per-document catalogs used
  * by the parser.
  */
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlCatalogFreeLocal	(void *catalogs);
-XMLPUBFUN void * XMLCALL		
+XMLPUBFUN void * XMLCALL
 		xmlCatalogAddLocal	(void *catalogs,
 					 const xmlChar *URL);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogLocalResolve	(void *catalogs,
 					 const xmlChar *pubID,
 	                                 const xmlChar *sysID);
-XMLPUBFUN xmlChar * XMLCALL	
+XMLPUBFUN xmlChar * XMLCALL
 		xmlCatalogLocalResolveURI(void *catalogs,
 					 const xmlChar *URI);
 /*
  * Preference settings.
  */
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlCatalogSetDebug	(int level);
-XMLPUBFUN xmlCatalogPrefer XMLCALL 
+XMLPUBFUN xmlCatalogPrefer XMLCALL
 		xmlCatalogSetDefaultPrefer(xmlCatalogPrefer prefer);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlCatalogSetDefaults	(xmlCatalogAllow allow);
-XMLPUBFUN xmlCatalogAllow XMLCALL	
+XMLPUBFUN xmlCatalogAllow XMLCALL
 		xmlCatalogGetDefaults	(void);
 
 
 /* DEPRECATED interfaces */
-XMLPUBFUN const xmlChar * XMLCALL	
+XMLPUBFUN const xmlChar * XMLCALL
 		xmlCatalogGetSystem	(const xmlChar *sysID);
-XMLPUBFUN const xmlChar * XMLCALL	
+XMLPUBFUN const xmlChar * XMLCALL
 		xmlCatalogGetPublic	(const xmlChar *pubID);
 
 #ifdef __cplusplus

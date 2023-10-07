@@ -1,30 +1,24 @@
 #! /bin/sh
+. "${srcdir=.}/init.sh"; path_prepend_ . ../src
 
 # Test of gettext facilities in the Java language.
 # Assumes an fr_FR locale is installed.
 # Assumes the following packages are installed: java.
 
-# Note: This test fails when using gcj from GCC 3.1 and GCC 3.2, due to a bug
-# (libgcj/6576). It is fixed in GCC 3.3.
-
-tmpfiles=""
-trap 'rm -fr $tmpfiles' 1 2 3 15
-
 # Test whether we can build and test Java programs.
 test "${JAVA_CHOICE}" != no || {
   echo "Skipping test: configured with --disable-java"
-  exit 77
+  Exit 77
 }
 test "${BUILDJAVA}" = yes || {
   echo "Skipping test: Java compiler or jar not found"
-  exit 77
+  Exit 77
 }
 test "${TESTJAVA}" = yes || {
   echo "Skipping test: Java engine not found"
-  exit 77
+  Exit 77
 }
 
-tmpfiles="$tmpfiles Program.java"
 cat <<\EOF > Program.java
 import java.util.*;
 import java.io.*;
@@ -58,26 +52,21 @@ cat <<\EOF >> Program.java
     System.out.println(MessageFormat.format(GettextResource.gettext(catalog,"{0} is replaced by {1}."), new Object[] { "FF", "EUR" }));
     System.out.println(MessageFormat.format(GettextResource.npgettext(catalog,"++","a piece of cake","{0,number} pieces of cake",n), new Object[] { new Integer(n) }));
     System.out.println(MessageFormat.format(GettextResource.pgettext(catalog,"++","{0} is replaced by {1}."), new Object[] { "FF", "EUR" }));
+    System.out.println(String.format(GettextResource.ngettext(catalog,"She has one child","She has %d children",n), n));
+    System.out.println(String.format(GettextResource.gettext(catalog,"%d left-wing deputees and %d right-wing deputees"), 75, 64));
   }
 }
 EOF
 
-tmpfiles="$tmpfiles Program.class l-java l-java-prog.err"
-test -d l-java || mkdir l-java
+: ${JAVACOMP="/bin/sh ../../javacomp.sh"}
+CLASSPATH=../../../gettext-runtime/intl-java/libintl.jar ${JAVACOMP} -d . Program.java 2>prog.err \
+  || { cat prog.err 1>&2; Exit 1; }
 
-: ${JAVACOMP="/bin/sh ../javacomp.sh"}
-CLASSPATH=../../gettext-runtime/intl-java/libintl.jar ${JAVACOMP} -d l-java Program.java 2>l-java-prog.err \
-  || { cat l-java-prog.err 1>&2; exit 1; }
-
-tmpfiles="$tmpfiles l-java-prog.tmp l-java-prog.pot"
 : ${XGETTEXT=xgettext}
-${XGETTEXT} -o l-java-prog.tmp --omit-header --no-location Program.java
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
-LC_ALL=C tr -d '\r' < l-java-prog.tmp > l-java-prog.pot
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+${XGETTEXT} -o prog.tmp --omit-header --no-location Program.java || Exit 1
+LC_ALL=C tr -d '\r' < prog.tmp > prog.pot || Exit 1
 
-tmpfiles="$tmpfiles l-java-prog.ok"
-cat <<EOF > l-java-prog.ok
+cat <<EOF > prog.ok
 msgid "'Your command, please?', asked the waiter."
 msgstr ""
 
@@ -102,13 +91,22 @@ msgstr[1] ""
 msgctxt "++"
 msgid "{0} is replaced by {1}."
 msgstr ""
+
+#, java-printf-format
+msgid "She has one child"
+msgid_plural "She has %d children"
+msgstr[0] ""
+msgstr[1] ""
+
+#, java-printf-format
+msgid "%d left-wing deputees and %d right-wing deputees"
+msgstr ""
 EOF
 
 : ${DIFF=diff}
-${DIFF} l-java-prog.ok l-java-prog.pot || exit 1
+${DIFF} prog.ok prog.pot || Exit 1
 
-tmpfiles="$tmpfiles l-java-fr.po"
-cat <<\EOF > l-java-fr.po
+cat <<\EOF > fr.po
 msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=ISO-8859-1\n"
@@ -142,39 +140,45 @@ msgstr[1] "{0,number} morceaux de gateau succulent"
 msgctxt "++"
 msgid "{0} is replaced by {1}."
 msgstr "Le nouveau {1} remplace le vieux {0}."
+
+#, java-printf-format
+msgid "She has one child"
+msgid_plural "She has %d children"
+msgstr[0] "Elle a un enfant"
+msgstr[1] "Elle a %d enfants"
+
+#, java-printf-format
+msgid "%d left-wing deputees and %d right-wing deputees"
+msgstr "%2$d députés de droite et %d députés de gauche"
 EOF
 
-tmpfiles="$tmpfiles l-java-fr.po.tmp l-java-fr.po.new"
 : ${MSGMERGE=msgmerge}
-${MSGMERGE} -q -o l-java-fr.po.tmp l-java-fr.po l-java-prog.pot
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
-LC_ALL=C tr -d '\r' < l-java-fr.po.tmp > l-java-fr.po.new
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+${MSGMERGE} -q -o fr.po.tmp fr.po prog.pot || Exit 1
+LC_ALL=C tr -d '\r' < fr.po.tmp > fr.po.new || Exit 1
 
 : ${DIFF=diff}
-${DIFF} l-java-fr.po l-java-fr.po.new || exit 1
+${DIFF} fr.po fr.po.new || Exit 1
 
-tmpfiles="$tmpfiles prog_fr.class"
 : ${MSGFMT=msgfmt}
-${MSGFMT} -j -d l-java -r prog -l fr l-java-fr.po || exit 1
+${MSGFMT} -j -d . -r prog -l fr fr.po || Exit 1
 
 # Test which of the fr_FR locales are installed.
 : ${LOCALE_FR=fr_FR}
 : ${LOCALE_FR_UTF8=fr_FR.UTF-8}
 if test $LOCALE_FR != none; then
-  LC_ALL=$LOCALE_FR ./testlocale
+  LC_ALL=$LOCALE_FR ../testlocale
   case $? in
     0) ;;
     77) LOCALE_FR=none;;
-    *) exit 1;;
+    *) Exit 1;;
   esac
 fi
 if test $LOCALE_FR_UTF8 != none; then
-  LC_ALL=$LOCALE_FR_UTF8 ./testlocale
+  LC_ALL=$LOCALE_FR_UTF8 ../testlocale
   case $? in
     0) ;;
     77) LOCALE_FR_UTF8=none;;
-    *) exit 1;;
+    *) Exit 1;;
   esac
 fi
 if test $LOCALE_FR = none && test $LOCALE_FR_UTF8 = none; then
@@ -183,38 +187,41 @@ if test $LOCALE_FR = none && test $LOCALE_FR_UTF8 = none; then
   else
     echo "Skipping test: no french locale is supported"
   fi
-  rm -fr $tmpfiles; exit 77
+  Exit 77
 fi
 
-tmpfiles="$tmpfiles l-java-prog.ok l-java-prog.oku l-java-prog.out"
 : ${DIFF=diff}
-cat <<\EOF > l-java-prog.ok
+cat <<\EOF > prog.ok
 «Votre commande, s'il vous plait», dit le garçon.
 2 morceaux de gateau
 EUR remplace FF.
 2 morceaux de gateau succulent
 Le nouveau EUR remplace le vieux FF.
+Elle a 2 enfants
+64 députés de droite et 75 députés de gauche
 EOF
-cat <<\EOF > l-java-prog.oku
+cat <<\EOF > prog.oku
 Â«Votre commande, s'il vous plaitÂ», dit le garÃ§on.
 2 morceaux de gateau
 EUR remplace FF.
 2 morceaux de gateau succulent
 Le nouveau EUR remplace le vieux FF.
+Elle a 2 enfants
+64 dÃ©putÃ©s de droite et 75 dÃ©putÃ©s de gauche
 EOF
 
 : ${LOCALE_FR=fr_FR}
 : ${LOCALE_FR_UTF8=fr_FR.UTF-8}
-: ${JAVAEXEC="/bin/sh ../javaexec.sh"}
+: ${JAVAEXEC="/bin/sh ../../javaexec.sh"}
 if test $LOCALE_FR != none; then
-  LANGUAGE= LC_ALL=$LOCALE_FR CLASSPATH=l-java:../../gettext-runtime/intl-java/libintl.jar ${JAVAEXEC} Program 2 ISO-8859-1 > l-java-prog.out || exit 1
-  ${DIFF} l-java-prog.ok l-java-prog.out || exit 1
+  prepare_locale_ fr $LOCALE_FR
+  LANGUAGE= LC_ALL=$LOCALE_FR CLASSPATH=.:../../../gettext-runtime/intl-java/libintl.jar ${JAVAEXEC} Program 2 ISO-8859-1 > prog.out || Exit 1
+  ${DIFF} prog.ok prog.out || Exit 1
 fi
 if test $LOCALE_FR_UTF8 != none; then
-  LANGUAGE= LC_ALL=$LOCALE_FR_UTF8 CLASSPATH=l-java:../../gettext-runtime/intl-java/libintl.jar ${JAVAEXEC} Program 2 UTF-8 > l-java-prog.out || exit 1
-  ${DIFF} l-java-prog.oku l-java-prog.out || exit 1
+  prepare_locale_ fr $LOCALE_FR_UTF8
+  LANGUAGE= LC_ALL=$LOCALE_FR_UTF8 CLASSPATH=.:../../../gettext-runtime/intl-java/libintl.jar ${JAVAEXEC} Program 2 UTF-8 > prog.out || Exit 1
+  ${DIFF} prog.oku prog.out || Exit 1
 fi
 
-rm -fr $tmpfiles
-
-exit 0
+Exit 0

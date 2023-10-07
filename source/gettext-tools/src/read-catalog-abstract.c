@@ -1,5 +1,5 @@
 /* Reading PO files, abstract class.
-   Copyright (C) 1995-1996, 1998, 2000-2009 Free Software Foundation, Inc.
+   Copyright (C) 1995-1996, 1998, 2000-2009, 2013, 2015, 2021, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -25,9 +25,11 @@
 #include "read-catalog-abstract.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "po-charset.h"
 #include "xalloc.h"
 #include "xvasprintf.h"
 #include "po-xerror.h"
@@ -169,21 +171,23 @@ parse_end (abstract_catalog_reader_ty *pop)
 void
 catalog_reader_parse (abstract_catalog_reader_ty *pop, FILE *fp,
                       const char *real_filename, const char *logical_filename,
+                      bool is_pot_role,
                       catalog_input_format_ty input_syntax)
 {
+  error_message_count = 0;
+
   /* Parse the stream's content.  */
   parse_start (pop);
-  input_syntax->parse (pop, fp, real_filename, logical_filename);
+  input_syntax->parse (pop, fp, real_filename, logical_filename, is_pot_role);
   parse_end (pop);
 
   if (error_message_count > 0)
     po_xerror (PO_SEVERITY_FATAL_ERROR, NULL,
                /*real_filename*/ NULL, (size_t)(-1), (size_t)(-1), false,
-               xasprintf (ngettext ("found %d fatal error",
-                                    "found %d fatal errors",
+               xasprintf (ngettext ("found %u fatal error",
+                                    "found %u fatal errors",
                                     error_message_count),
                           error_message_count));
-  error_message_count = 0;
 }
 
 
@@ -261,7 +265,8 @@ po_callback_comment_special (const char *s)
 void
 po_parse_comment_special (const char *s,
                           bool *fuzzyp, enum is_format formatp[NFORMATS],
-                          struct argument_range *rangep, enum is_wrap *wrapp)
+                          struct argument_range *rangep, enum is_wrap *wrapp,
+                          enum is_syntax_check scp[NSYNTAXCHECKS])
 {
   size_t i;
 
@@ -271,6 +276,8 @@ po_parse_comment_special (const char *s,
   rangep->min = -1;
   rangep->max = -1;
   *wrapp = undecided;
+  for (i = 0; i < NSYNTAXCHECKS; i++)
+    scp[i] = undecided;
 
   while (*s != '\0')
     {
@@ -404,6 +411,36 @@ po_parse_comment_special (const char *s,
               continue;
             }
 
+          /* Accept syntax check description.  */
+          if (len >= 6 && memcmp (t + len - 6, "-check", 6) == 0)
+            {
+              const char *p;
+              size_t n;
+              enum is_syntax_check value;
+
+              p = t;
+              n = len - 6;
+
+              if (n >= 3 && memcmp (p, "no-", 3) == 0)
+                {
+                  p += 3;
+                  n -= 3;
+                  value = no;
+                }
+              else
+                value = yes;
+
+              for (i = 0; i < NSYNTAXCHECKS; i++)
+                if (strlen (syntax_check_name[i]) == n
+                    && memcmp (syntax_check_name[i], p, n) == 0)
+                  {
+                    scp[i] = value;
+                    break;
+                  }
+              if (i < NSYNTAXCHECKS)
+                continue;
+            }
+
           /* Unknown special comment marker.  It may have been generated
              from a future xgettext version.  Ignore it.  */
         }
@@ -418,6 +455,10 @@ po_parse_comment_special (const char *s,
              STRING
    The latter style, without line number, occurs in PO files converted e.g.
    from Pascal .rst files or from OpenOffice resource files.
+   The STRING is either
+             FILENAME
+           or
+             U+2068 FILENAME U+2069.
    Call po_callback_comment_filepos for each of them.  */
 static void
 po_parse_comment_filepos (const char *s)
@@ -428,11 +469,41 @@ po_parse_comment_filepos (const char *s)
         s++;
       if (*s != '\0')
         {
-          const char *string_start = s;
+          bool isolated_filename =
+            (po_lex_isolate_start != NULL
+             && strncmp (s, po_lex_isolate_start,
+                         strlen (po_lex_isolate_start)) == 0);
+          if (isolated_filename)
+            s += strlen (po_lex_isolate_start);
 
-          do
-            s++;
-          while (!(*s == '\0' || *s == ' ' || *s == '\t' || *s == '\n'));
+          const char *filename_start = s;
+          const char *filename_end;
+
+          if (isolated_filename)
+            {
+              for (;; s++)
+                {
+                  if (*s == '\0' || *s == '\n')
+                    {
+                      filename_end = s;
+                      break;
+                    }
+                  if (strncmp (s, po_lex_isolate_end,
+                               strlen (po_lex_isolate_end)) == 0)
+                    {
+                      filename_end = s;
+                      s += strlen (po_lex_isolate_end);
+                      break;
+                    }
+                }
+            }
+          else
+            {
+              do
+                s++;
+              while (!(*s == '\0' || *s == ' ' || *s == '\t' || *s == '\n'));
+              filename_end = s;
+            }
 
           /* See if there is a COLON and NUMBER after the STRING, separated
              through optional spaces.  */
@@ -464,16 +535,15 @@ po_parse_comment_filepos (const char *s)
                     if (*p == '\0' || *p == ' ' || *p == '\t' || *p == '\n')
                       {
                         /* Parsed a GNU style file comment with spaces.  */
-                        const char *string_end = s;
-                        size_t string_length = string_end - string_start;
-                        char *string = XNMALLOC (string_length + 1, char);
+                        size_t filename_length = filename_end - filename_start;
+                        char *filename = XNMALLOC (filename_length + 1, char);
 
-                        memcpy (string, string_start, string_length);
-                        string[string_length] = '\0';
+                        memcpy (filename, filename_start, filename_length);
+                        filename[filename_length] = '\0';
 
-                        po_callback_comment_filepos (string, n);
+                        po_callback_comment_filepos (filename, n);
 
-                        free (string);
+                        free (filename);
 
                         s = p;
                         continue;
@@ -506,16 +576,16 @@ po_parse_comment_filepos (const char *s)
                   if (*p == '\0' || *p == ' ' || *p == '\t' || *p == '\n')
                     {
                       /* Parsed a GNU style file comment with spaces.  */
-                      const char *string_end = s - 1;
-                      size_t string_length = string_end - string_start;
-                      char *string = XNMALLOC (string_length + 1, char);
+                      filename_end = s - 1;
+                      size_t filename_length = filename_end - filename_start;
+                      char *filename = XNMALLOC (filename_length + 1, char);
 
-                      memcpy (string, string_start, string_length);
-                      string[string_length] = '\0';
+                      memcpy (filename, filename_start, filename_length);
+                      filename[filename_length] = '\0';
 
-                      po_callback_comment_filepos (string, n);
+                      po_callback_comment_filepos (filename, n);
 
-                      free (string);
+                      free (filename);
 
                       s = p;
                       continue;
@@ -528,7 +598,7 @@ po_parse_comment_filepos (const char *s)
           {
             const char *p = s;
 
-            while (p > string_start)
+            while (p > filename_start)
               {
                 p--;
                 if (!(*p >= '0' && *p <= '9'))
@@ -542,7 +612,7 @@ po_parse_comment_filepos (const char *s)
                at the end of STRING.  */
 
             if (p < s
-                && p > string_start + 1
+                && p > filename_start + 1
                 && p[-1] == ':')
               {
                 /* Parsed a GNU style file comment without spaces.  */
@@ -560,15 +630,16 @@ po_parse_comment_filepos (const char *s)
                   while (p < s);
 
                   {
-                    size_t string_length = string_end - string_start;
-                    char *string = XNMALLOC (string_length + 1, char);
+                    filename_end = string_end;
+                    size_t filename_length = filename_end - filename_start;
+                    char *filename = XNMALLOC (filename_length + 1, char);
 
-                    memcpy (string, string_start, string_length);
-                    string[string_length] = '\0';
+                    memcpy (filename, filename_start, filename_length);
+                    filename[filename_length] = '\0';
 
-                    po_callback_comment_filepos (string, n);
+                    po_callback_comment_filepos (filename, n);
 
-                    free (string);
+                    free (filename);
 
                     continue;
                   }
@@ -578,16 +649,15 @@ po_parse_comment_filepos (const char *s)
 
           /* Parsed a file comment without line number.  */
           {
-            const char *string_end = s;
-            size_t string_length = string_end - string_start;
-            char *string = XNMALLOC (string_length + 1, char);
+            size_t filename_length = filename_end - filename_start;
+            char *filename = XNMALLOC (filename_length + 1, char);
 
-            memcpy (string, string_start, string_length);
-            string[string_length] = '\0';
+            memcpy (filename, filename_start, filename_length);
+            filename[filename_length] = '\0';
 
-            po_callback_comment_filepos (string, (size_t)(-1));
+            po_callback_comment_filepos (filename, (size_t)(-1));
 
-            free (string);
+            free (filename);
           }
         }
     }

@@ -1,5 +1,5 @@
 /* Fast fuzzy searching among messages.
-   Copyright (C) 2006, 2008, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2006, 2008, 2011, 2013, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2006.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -216,8 +216,7 @@ message_fuzzy_index_alloc (const message_list_ty *mlp,
   findex->iterator = po_charset_character_iterator (canon_charset);
 
   /* Setup hash table.  */
-  if (hash_init (&findex->gram4, 10 * count) < 0)
-    xalloc_die ();
+  hash_init (&findex->gram4, 10 * count);
   for (j = 0; j < count; j++)
     {
       message_ty *mp = mlp->item[j];
@@ -324,14 +323,14 @@ message_fuzzy_index_alloc (const message_list_ty *mlp,
   /* Shrink memory used by the lists of short messages.  */
   for (l = 0; l <= SHORT_MSG_MAX; l++)
     {
-      message_list_ty *mlp = findex->short_messages[l];
+      message_list_ty *smlp = findex->short_messages[l];
 
-      if (mlp->nitems < mlp->nitems_max)
+      if (smlp->nitems < smlp->nitems_max)
         {
-          mlp->nitems_max = mlp->nitems;
-          mlp->item =
+          smlp->nitems_max = smlp->nitems;
+          smlp->item =
             (message_ty **)
-            xrealloc (mlp->item, mlp->nitems_max * sizeof (message_ty *));
+            xrealloc (smlp->item, smlp->nitems_max * sizeof (message_ty *));
         }
     }
 

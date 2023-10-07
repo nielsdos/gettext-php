@@ -1,5 +1,5 @@
 /* xgettext PHP backend.
-   Copyright (C) 2001-2003, 2005-2010 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2005-2010, 2014, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <bruno@clisp.org>, 2002.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -28,9 +28,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "attribute.h"
 #include "message.h"
+#include "rc-str-list.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-mixed-string.h"
+#include "xg-arglist-context.h"
+#include "xg-arglist-callshape.h"
+#include "xg-arglist-parser.h"
+#include "xg-message.h"
 #include "error.h"
+#include "error-progname.h"
 #include "xalloc.h"
 #include "gettext.h"
 
@@ -128,14 +137,6 @@ init_flag_table_php ()
 
 
 /* ======================== Reading of characters.  ======================== */
-
-
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
 
 /* The input file stream.  */
 static FILE *fp;
@@ -668,7 +669,7 @@ phase3_getc ()
                         comment_line_end (2);
                         break;
                       }
-                    /* FALLTHROUGH */
+                    FALLTHROUGH;
 
                   default:
                     last_was_star = false;
@@ -803,7 +804,7 @@ phase4_get (token_ty *tp)
         case '\n':
           if (last_non_comment_line > last_comment_line)
             savable_comment_reset ();
-          /* FALLTHROUGH */
+          FALLTHROUGH;
         case ' ':
         case '\t':
         case '\r':
@@ -1161,7 +1162,9 @@ phase4_get (token_ty *tp)
                 int c3 = phase1_getc ();
                 if (c3 == '<')
                   {
-                    /* Start of here document.
+                    int label_start = 0;
+
+                    /* Start of here and now document.
                        Parse whitespace, then label, then newline.  */
                     do
                       c = phase3_getc ();
@@ -1179,7 +1182,14 @@ phase4_get (token_ty *tp)
                         c = phase3_getc ();
                       }
                     while (c != EOF && c != '\n' && c != '\r');
-                    /* buffer[0..bufpos-1] now contains the label.  */
+                    /* buffer[0..bufpos-1] now contains the label
+                       (including single or double quotes).  */
+
+                    if (*buffer == '\'' || *buffer == '"')
+                      {
+                        label_start++;
+                        bufpos--;
+                      }
 
                     /* Now skip the here document.  */
                     for (;;)
@@ -1189,7 +1199,7 @@ phase4_get (token_ty *tp)
                           break;
                         if (c == '\n' || c == '\r')
                           {
-                            int bufidx = 0;
+                            int bufidx = label_start;
 
                             while (bufidx < bufpos)
                               {
@@ -1389,6 +1399,14 @@ x_php_lex (token_ty *tp)
 static flag_context_list_table_ty *flag_context_list_table;
 
 
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depths.  */
+static int paren_nesting_depth;
+static int bracket_nesting_depth;
+
+
 /* The file is broken into tokens.  Scan the token stream, looking for
    a keyword, followed by a left paren, followed by a string.  When we
    see this sequence, we have something to remember.  We assume we are
@@ -1463,6 +1481,12 @@ extract_balanced (message_list_ty *mlp,
           continue;
 
         case token_type_lparen:
+          if (++paren_nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open parentheses"),
+                     logical_file_name, line_number);
+            }
           if (extract_balanced (mlp, token_type_rparen,
                                 inner_context, next_context_iter,
                                 arglist_parser_alloc (mlp,
@@ -1471,6 +1495,7 @@ extract_balanced (message_list_ty *mlp,
               arglist_parser_done (argparser, arg);
               return true;
             }
+          paren_nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -1496,6 +1521,12 @@ extract_balanced (message_list_ty *mlp,
           continue;
 
         case token_type_lbracket:
+          if (++bracket_nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open brackets"),
+                     logical_file_name, line_number);
+            }
           if (extract_balanced (mlp, token_type_rbracket,
                                 null_context, null_context_list_iterator,
                                 arglist_parser_alloc (mlp, NULL)))
@@ -1503,6 +1534,7 @@ extract_balanced (message_list_ty *mlp,
               arglist_parser_done (argparser, arg);
               return true;
             }
+          bracket_nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -1524,13 +1556,19 @@ extract_balanced (message_list_ty *mlp,
             pos.line_number = token.line_number;
 
             if (extract_all)
-              remember_a_message (mlp, NULL, token.string, inner_context,
-                                  &pos, NULL, token.comment);
+              remember_a_message (mlp, NULL, token.string, false, false,
+                                  inner_context, &pos,
+                                  NULL, token.comment, false);
             else
-              arglist_parser_remember (argparser, arg, token.string,
-                                       inner_context,
-                                       pos.file_name, pos.line_number,
-                                       token.comment);
+              {
+                mixed_string_ty *ms =
+                  mixed_string_alloc_simple (token.string, lc_string,
+                                             pos.file_name, pos.line_number);
+                free (token.string);
+                arglist_parser_remember (argparser, arg, ms, inner_context,
+                                         pos.file_name, pos.line_number,
+                                         token.comment, false);
+              }
             drop_reference (token.comment);
           }
           next_context_iter = null_context_list_iterator;
@@ -1569,12 +1607,22 @@ extract_php (FILE *f,
   logical_file_name = xstrdup (logical_filename);
   line_number = 1;
 
+  phase1_pushback_length = 0;
+#if 0
+  phase2_pushback_length = 0;
+#endif
+
   last_comment_line = -1;
   last_non_comment_line = -1;
+
+  phase3_pushback_length = 0;
+  phase4_pushback_length = 0;
 
   phase5_last = token_type_eof;
 
   flag_context_list_table = flag_table;
+  paren_nesting_depth = 0;
+  bracket_nesting_depth = 0;
 
   init_keywords ();
 

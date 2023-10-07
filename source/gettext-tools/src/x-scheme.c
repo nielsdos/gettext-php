@@ -1,5 +1,5 @@
 /* xgettext Scheme backend.
-   Copyright (C) 2004-2009, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2004-2009, 2011, 2014, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <bruno@clisp.org>, 2004-2005.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -29,11 +29,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "attribute.h"
 #include "message.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-mixed-string.h"
+#include "xg-arglist-context.h"
+#include "xg-arglist-callshape.h"
+#include "xg-arglist-parser.h"
+#include "xg-message.h"
 #include "error.h"
+#include "error-progname.h"
 #include "xalloc.h"
-#include "hash.h"
+#include "mem-hash-map.h"
 #include "gettext.h"
 
 #define _(s) gettext(s)
@@ -148,13 +156,6 @@ init_flag_table_scheme ()
 
 /* ======================== Reading of characters.  ======================== */
 
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
-
 /* The input file stream.  */
 static FILE *fp;
 
@@ -168,8 +169,8 @@ do_getc ()
   if (c == EOF)
     {
       if (ferror (fp))
-        error (EXIT_FAILURE, errno, _("\
-error while reading \"%s\""), real_file_name);
+        error (EXIT_FAILURE, errno,
+               _("error while reading \"%s\""), real_file_name);
     }
   else if (c == '\n')
    line_number++;
@@ -295,7 +296,7 @@ is_integer_syntax (const char *str, int len, int radix)
    If unconstrained is false, only real numbers are accepted; otherwise,
    complex numbers are accepted as well.
    Taken from guile-1.6.4/libguile/numbers.c:scm_istr2flo().  */
-static inline bool
+static bool
 is_other_number_syntax (const char *str, int len, int radix, bool unconstrained)
 {
   const char *p = str;
@@ -498,7 +499,6 @@ is_number (const struct token *tp)
 {
   const char *str = tp->chars;
   int len = tp->charcount;
-  int radix = 10;
   enum { unknown, exact, inexact } exactness = unknown;
   bool seen_radix_prefix = false;
   bool seen_exactness_prefix = false;
@@ -513,25 +513,21 @@ is_number (const struct token *tp)
         case 'B': case 'b':
           if (seen_radix_prefix)
             return false;
-          radix = 2;
           seen_radix_prefix = true;
           break;
         case 'O': case 'o':
           if (seen_radix_prefix)
             return false;
-          radix = 8;
           seen_radix_prefix = true;
           break;
         case 'D': case 'd':
           if (seen_radix_prefix)
             return false;
-          radix = 10;
           seen_radix_prefix = true;
           break;
         case 'X': case 'x':
           if (seen_radix_prefix)
             return false;
-          radix = 16;
           seen_radix_prefix = true;
           break;
         case 'E': case 'e':
@@ -672,18 +668,34 @@ string_of_object (const struct object *op)
   return str;
 }
 
+
 /* Context lookup table.  */
 static flag_context_list_table_ty *flag_context_list_table;
+
+
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depth.  */
+static int nesting_depth;
+
 
 /* Read the next object.  */
 static void
 read_object (struct object *op, flag_context_ty outer_context)
 {
+  if (nesting_depth > MAX_NESTING_DEPTH)
+    {
+      error_with_progname = false;
+      error (EXIT_FAILURE, 0, _("%s:%d: error: too deeply nested objects"),
+             logical_file_name, line_number);
+    }
   for (;;)
     {
-      int c = do_getc ();
+      int ch = do_getc ();
+      bool seen_underscore_prefix = false;
 
-      switch (c)
+      switch (ch)
         {
         case EOF:
           op->type = t_eof;
@@ -708,7 +720,7 @@ read_object (struct object *op, flag_context_ty outer_context)
             comment_start ();
             for (;;)
               {
-                c = do_getc ();
+                int c = do_getc ();
                 if (c == EOF || c == '\n')
                   break;
                 if (c != ';')
@@ -726,8 +738,8 @@ read_object (struct object *op, flag_context_ty outer_context)
 
         case '(':
           {
-             int arg = 0;               /* Current argument number.  */
-             flag_context_list_iterator_ty context_iter;
+            int arg = 0;                /* Current argument number.  */
+            flag_context_list_iterator_ty context_iter;
             const struct callshapes *shapes = NULL;
             struct arglist_parser *argparser = NULL;
 
@@ -744,7 +756,9 @@ read_object (struct object *op, flag_context_ty outer_context)
                                        flag_context_list_iterator_advance (
                                          &context_iter));
 
+                ++nesting_depth;
                 read_object (&inner, inner_context);
+                nesting_depth--;
 
                 /* Recognize end of list.  */
                 if (inner.type == t_close)
@@ -795,12 +809,19 @@ read_object (struct object *op, flag_context_ty outer_context)
                   {
                     /* These are the argument positions.  */
                     if (argparser != NULL && inner.type == t_string)
-                      arglist_parser_remember (argparser, arg,
-                                               string_of_object (&inner),
-                                               inner_context,
-                                               logical_file_name,
-                                               inner.line_number_at_start,
-                                               savable_comment);
+                      {
+                        char *s = string_of_object (&inner);
+                        mixed_string_ty *ms =
+                          mixed_string_alloc_simple (s, lc_string,
+                                                     logical_file_name,
+                                                     inner.line_number_at_start);
+                        free (s);
+                        arglist_parser_remember (argparser, arg, ms,
+                                                 inner_context,
+                                                 logical_file_name,
+                                                 inner.line_number_at_start,
+                                                 savable_comment, false);
+                      }
                   }
 
                 free_object (&inner);
@@ -828,13 +849,15 @@ read_object (struct object *op, flag_context_ty outer_context)
             if (c != EOF && c != '@')
               do_ungetc (c);
           }
-          /*FALLTHROUGH*/
+          FALLTHROUGH;
         case '\'':
         case '`':
           {
             struct object inner;
 
+            ++nesting_depth;
             read_object (&inner, null_context);
+            nesting_depth--;
 
             /* Dots and EOF are not allowed here.  But be tolerant.  */
 
@@ -848,21 +871,23 @@ read_object (struct object *op, flag_context_ty outer_context)
         case '#':
           /* Dispatch macro handling.  */
           {
-            c = do_getc ();
-            if (c == EOF)
+            int dmc = do_getc ();
+            if (dmc == EOF)
               /* Invalid input.  Be tolerant, no error message.  */
               {
                 op->type = t_other;
                 return;
               }
 
-            switch (c)
+            switch (dmc)
               {
               case '(': /* Vector */
-                do_ungetc (c);
+                do_ungetc (dmc);
                 {
                   struct object inner;
+                  ++nesting_depth;
                   read_object (&inner, null_context);
+                  nesting_depth--;
                   /* Dots and EOF are not allowed here.
                      But be tolerant.  */
                   free_object (&inner);
@@ -872,10 +897,94 @@ read_object (struct object *op, flag_context_ty outer_context)
                 }
 
               case 'T': case 't': /* Boolean true */
-              case 'F': case 'f': /* Boolean false */
+              case 'F': /* Boolean false */
                 op->type = t_other;
                 last_non_comment_line = line_number;
                 return;
+
+              case 'a':
+              case 'c':
+              case 'f':
+              case 'h':
+              case 'l':
+              case 's':
+              case 'u':
+              case 'v':
+              case 'y':
+                {
+                  struct token token;
+                  do_ungetc (dmc);
+                  read_token (&token, '#');
+                  if ((token.charcount == 2
+                       && (token.chars[1] == 'a' || token.chars[1] == 'c'
+                           || token.chars[1] == 'h' || token.chars[1] == 'l'
+                           || token.chars[1] == 's' || token.chars[1] == 'u'
+                           || token.chars[1] == 'y'))
+                      || (token.charcount == 3
+                          && (token.chars[1] == 's' || token.chars[1] == 'u')
+                          && token.chars[2] == '8')
+                      || (token.charcount == 4
+                          && (((token.chars[1] == 's' || token.chars[1] == 'u')
+                               && token.chars[2] == '1'
+                               && token.chars[3] == '6')
+                              || ((token.chars[1] == 'c'
+                                   || token.chars[1] == 'f'
+                                   || token.chars[1] == 's'
+                                   || token.chars[1] == 'u')
+                                  && ((token.chars[2] == '3'
+                                       && token.chars[3] == '2')
+                                      || (token.chars[2] == '6'
+                                          && token.chars[3] == '4')))
+                              || (token.chars[1] == 'v'
+                                  && token.chars[2] == 'u'
+                                  && token.chars[3] == '8'))))
+                    {
+                      int c = do_getc ();
+                      if (c != EOF)
+                        do_ungetc (c);
+                      if (c == '(')
+                        {
+                          /* Homogenous vector syntax:
+                               #a(...) - vector of char
+                               #c(...) - vector of complex (old)
+                               #c32(...) - vector of complex of single-float
+                               #c64(...) - vector of complex of double-float
+                               #f32(...) - vector of single-float
+                               #f64(...) - vector of double-float
+                               #h(...) - vector of short (old)
+                               #l(...) - vector of long long (old)
+                               #s(...) - vector of single-float (old)
+                               #s8(...) - vector of signed 8-bit integers
+                               #s16(...) - vector of signed 16-bit integers
+                               #s32(...) - vector of signed 32-bit integers
+                               #s64(...) - vector of signed 64-bit integers
+                               #u(...) - vector of unsigned long (old)
+                               #u8(...) - vector of unsigned 8-bit integers
+                               #u16(...) - vector of unsigned 16-bit integers
+                               #u32(...) - vector of unsigned 32-bit integers
+                               #u64(...) - vector of unsigned 64-bit integers
+                               #vu8(...) - vector of byte
+                               #y(...) - vector of byte (old)
+                           */
+                          struct object inner;
+                          ++nesting_depth;
+                          read_object (&inner, null_context);
+                          nesting_depth--;
+                          /* Dots and EOF are not allowed here.
+                             But be tolerant.  */
+                          free_token (&token);
+                          free_object (&inner);
+                          op->type = t_other;
+                          last_non_comment_line = line_number;
+                          return;
+                        }
+                    }
+                  /* Boolean false, or unknown # object.  But be tolerant.  */
+                  free_token (&token);
+                  op->type = t_other;
+                  last_non_comment_line = line_number;
+                  return;
+                }
 
               case 'B': case 'b':
               case 'O': case 'o':
@@ -885,7 +994,7 @@ read_object (struct object *op, flag_context_ty outer_context)
               case 'I': case 'i':
                 {
                   struct token token;
-                  do_ungetc (c);
+                  do_ungetc (dmc);
                   read_token (&token, '#');
                   if (is_number (&token))
                     {
@@ -900,31 +1009,27 @@ read_object (struct object *op, flag_context_ty outer_context)
                       if (token.charcount == 2
                           && (token.chars[1] == 'e' || token.chars[1] == 'i'))
                         {
-                          c = do_getc ();
+                          int c = do_getc ();
                           if (c != EOF)
                             do_ungetc (c);
                           if (c == '(')
-                            /* Homogenous vector syntax, see arrays.scm.  */
-                            case 'a':   /* Vectors of char */
-                            case 'c':   /* Vectors of complex */
-                          /*case 'e':*/ /* Vectors of long */
-                            case 'h':   /* Vectors of short */
-                          /*case 'i':*/ /* Vectors of double-float */
-                            case 'l':   /* Vectors of long long */
-                            case 's':   /* Vectors of single-float */
-                            case 'u':   /* Vectors of unsigned long */
-                            case 'y':   /* Vectors of byte */
-                              {
-                                struct object inner;
-                                read_object (&inner, null_context);
-                                /* Dots and EOF are not allowed here.
-                                   But be tolerant.  */
-                                free_token (&token);
-                                free_object (&inner);
-                                op->type = t_other;
-                                last_non_comment_line = line_number;
-                                return;
-                              }
+                            {
+                              /* Homogenous vector syntax:
+                                   #e(...) - vector of long (old)
+                                   #i(...) - vector of double-float (old)
+                               */
+                              struct object inner;
+                              ++nesting_depth;
+                              read_object (&inner, null_context);
+                              nesting_depth--;
+                              /* Dots and EOF are not allowed here.
+                                 But be tolerant.  */
+                              free_token (&token);
+                              free_object (&inner);
+                              op->type = t_other;
+                              last_non_comment_line = line_number;
+                              return;
+                            }
                         }
                       /* Unknown # object.  But be tolerant.  */
                       free_token (&token);
@@ -936,7 +1041,7 @@ read_object (struct object *op, flag_context_ty outer_context)
 
               case '!':
                 /* Block comment '#! ... !#'.  See
-                   <http://www.gnu.org/software/guile/manual/html_node/Block-Comments.html>.  */
+                   <https://www.gnu.org/software/guile/manual/html_node/Block-Comments.html>.  */
                 {
                   int c;
 
@@ -984,8 +1089,8 @@ read_object (struct object *op, flag_context_ty outer_context)
 
               case '|':
                 /* Block comment '#| ... |#'.  See
-                   <http://www.gnu.org/software/guile/manual/html_node/Block-Comments.html>
-                   and <http://srfi.schemers.org/srfi-30/srfi-30.html>.  */
+                   <https://www.gnu.org/software/guile/manual/html_node/Block-Comments.html>
+                   and <https://srfi.schemers.org/srfi-30/srfi-30.html>.  */
                 {
                   int depth = 0;
                   int c;
@@ -1056,7 +1161,7 @@ read_object (struct object *op, flag_context_ty outer_context)
                 /* Bit vector.  */
                 {
                   struct token token;
-                  read_token (&token, c);
+                  read_token (&token, dmc);
                   /* The token should consists only of '0' and '1', except
                      for the initial '*'.  But be tolerant.  */
                   free_token (&token);
@@ -1074,7 +1179,7 @@ read_object (struct object *op, flag_context_ty outer_context)
 
                   for (;;)
                     {
-                      c = do_getc ();
+                      int c = do_getc ();
 
                       if (c == EOF)
                         break;
@@ -1106,7 +1211,7 @@ read_object (struct object *op, flag_context_ty outer_context)
                 /* Character.  */
                 {
                   struct token token;
-                  c = do_getc ();
+                  int c = do_getc ();
                   if (c != EOF)
                     {
                       read_token (&token, c);
@@ -1137,18 +1242,23 @@ read_object (struct object *op, flag_context_ty outer_context)
                      n ::= DIGIT+
                      x ::= {'a'|'b'|'c'|'e'|'i'|'s'|'u'}
                  */
-                do
-                  c = do_getc ();
-                while (c >= '0' && c <= '9');
-                /* c should be one of {'a'|'b'|'c'|'e'|'i'|'s'|'u'}.
-                   But be tolerant.  */
-                /*FALLTHROUGH*/
+                {
+                  int c;
+                  do
+                    c = do_getc ();
+                  while (c >= '0' && c <= '9');
+                  /* c should be one of {'a'|'b'|'c'|'e'|'i'|'s'|'u'}.
+                     But be tolerant.  */
+                }
+                FALLTHROUGH;
               case '\'': /* boot-9.scm */
               case '.': /* boot-9.scm */
               case ',': /* srfi-10.scm */
                 {
                   struct object inner;
+                  ++nesting_depth;
                   read_object (&inner, null_context);
+                  nesting_depth--;
                   /* Dots and EOF are not allowed here.
                      But be tolerant.  */
                   free_object (&inner);
@@ -1166,6 +1276,33 @@ read_object (struct object *op, flag_context_ty outer_context)
             /*NOTREACHED*/
             abort ();
           }
+
+        case '_':
+          /* GIMP script-fu extension: '_' before a string literal is
+             considered a gettext call on the string.  */
+          {
+            int c = do_getc ();
+            if (c == EOF)
+              /* Invalid input.  Be tolerant, no error message.  */
+              {
+                op->type = t_other;
+                return;
+              }
+            if (c != '"')
+              {
+                do_ungetc (c);
+
+                /* If '_' is not followed by a string literal,
+                   consider it a part of symbol.  */
+                op->token = XMALLOC (struct token);
+                read_token (op->token, '_');
+                op->type = t_symbol;
+                last_non_comment_line = line_number;
+                return;
+              }
+            seen_underscore_prefix = true;
+          }
+          FALLTHROUGH;
 
         case '"':
           {
@@ -1220,14 +1357,15 @@ read_object (struct object *op, flag_context_ty outer_context)
               }
             op->type = t_string;
 
-            if (extract_all)
+            if (seen_underscore_prefix || extract_all)
               {
                 lex_pos_ty pos;
 
                 pos.file_name = logical_file_name;
                 pos.line_number = op->line_number_at_start;
-                remember_a_message (mlp, NULL, string_of_object (op),
-                                    null_context, &pos, NULL, savable_comment);
+                remember_a_message (mlp, NULL, string_of_object (op), false,
+                                    false, null_context, &pos,
+                                    NULL, savable_comment, false);
               }
             last_non_comment_line = line_number;
             return;
@@ -1238,7 +1376,7 @@ read_object (struct object *op, flag_context_ty outer_context)
         case '+': case '-': case '.':
           /* Read a number or symbol token.  */
           op->token = XMALLOC (struct token);
-          read_token (op->token, c);
+          read_token (op->token, ch);
           if (op->token->charcount == 1 && op->token->chars[0] == '.')
             {
               free_token (op->token);
@@ -1264,7 +1402,7 @@ read_object (struct object *op, flag_context_ty outer_context)
         default:
           /* Read a symbol token.  */
           op->token = XMALLOC (struct token);
-          read_token (op->token, c);
+          read_token (op->token, ch);
           op->type = t_symbol;
           last_non_comment_line = line_number;
           return;
@@ -1290,6 +1428,7 @@ extract_scheme (FILE *f,
   last_non_comment_line = -1;
 
   flag_context_list_table = flag_table;
+  nesting_depth = 0;
 
   init_keywords ();
 

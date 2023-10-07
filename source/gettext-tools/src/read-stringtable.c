@@ -1,5 +1,5 @@
 /* Reading NeXTstep/GNUstep .strings files.
-   Copyright (C) 2003, 2005-2007, 2009 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2005-2007, 2009, 2019-2020, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2003.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "attribute.h"
 #include "error.h"
 #include "error-progname.h"
 #include "read-catalog-abstract.h"
@@ -512,7 +513,7 @@ comment_add (int c)
   buffer[buflen++] = c;
 }
 
-static inline void
+static void
 comment_line_end (size_t chars_to_remove, bool test_for_fuzzy_msgstr)
 {
   char *line;
@@ -639,7 +640,7 @@ phase4_getc ()
                                       && !seen_newline);
                     break;
                   }
-                /* FALLTHROUGH */
+                FALLTHROUGH;
 
               default:
                 last_was_star = false;
@@ -827,7 +828,8 @@ read_string (lex_pos_ty *pos)
    abstract_catalog_reader_class_ty methods.  */
 static void
 stringtable_parse (abstract_catalog_reader_ty *pop, FILE *file,
-                   const char *real_filename, const char *logical_filename)
+                   const char *real_filename, const char *logical_filename,
+                   bool is_pot_role)
 {
   fp = file;
   real_file_name = real_filename;
@@ -936,8 +938,8 @@ stringtable_parse (abstract_catalog_reader_ty *pop, FILE *file,
             {
               po_xerror (PO_SEVERITY_ERROR, NULL,
                          real_file_name, gram_pos.line_number, (size_t)(-1),
-                         false, _("\
-warning: syntax error, expected ';' after string"));
+                         false,
+                         _("warning: syntax error, expected ';' after string"));
               break;
             }
         }
@@ -945,8 +947,7 @@ warning: syntax error, expected ';' after string"));
         {
           po_xerror (PO_SEVERITY_ERROR, NULL,
                      real_file_name, gram_pos.line_number, (size_t)(-1), false,
-                     _("\
-warning: syntax error, expected '=' or ';' after string"));
+                     _("warning: syntax error, expected '=' or ';' after string"));
           break;
         }
     }

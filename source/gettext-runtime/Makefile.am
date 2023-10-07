@@ -1,5 +1,6 @@
 ## Makefile for the gettext-runtime directory of GNU gettext
-## Copyright (C) 1995-1999, 2000-2006, 2010, 2012 Free Software Foundation, Inc.
+## Copyright (C) 1995-2006, 2010, 2012-2016, 2018-2019 Free Software Foundation,
+## Inc.
 ##
 ## This program is free software: you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -12,14 +13,12 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with this program.  If not, see <http://www.gnu.org/licenses/>.
+## along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Process this file with automake to produce Makefile.in.
 
 AUTOMAKE_OPTIONS = 1.5 gnu no-dependencies
 ACLOCAL_AMFLAGS = -I m4 -I ../m4 -I gnulib-m4
-
-MAKEINFO = env LANG= LC_MESSAGES= LC_ALL= LANGUAGE= @MAKEINFO@
 
 # The list of subdirectories depends on whether --disable-libasprintf was
 # specified.
@@ -39,18 +38,16 @@ gettextsrcdir = $(datadir)/gettext
 gettextsrc_DATA = ABOUT-NLS
 
 
-all-local: ABOUT-NLS
-
-ABOUT-NLS: $(srcdir)/doc/nls.texi $(srcdir)/doc/matrix.texi
-	rm -f $(srcdir)/ABOUT-NLS \
-	  && $(MAKEINFO) --plaintext --no-validate -I $(srcdir)/doc nls.texi \
-	     | sed -e "s/\`\([^']*\)'/‘\1’/g" > $(srcdir)/ABOUT-NLS
-
-
 # Allow users to use "gnulib-tool --update".
 EXTRA_DIST += gnulib-m4/gnulib-cache.m4
 
 
-# Woe32 support.
+# Windows support.
 
-EXTRA_DIST += README.woe32
+EXTRA_DIST += INSTALL.windows
+
+
+maintainer-update-po: $(top_builddir)/config.status
+	$(SHELL) ./config.status --recheck
+	$(SHELL) ./config.status po/Makefile.in po-directories
+	cd po && $(MAKE) update-po

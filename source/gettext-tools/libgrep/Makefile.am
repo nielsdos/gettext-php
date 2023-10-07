@@ -1,5 +1,5 @@
 ## Makefile for libgrep directory in GNU gettext package.
-## Copyright (C) 2005-2007, 2009-2010 Free Software Foundation, Inc.
+## Copyright (C) 2005-2007, 2009-2010, 2014, 2021, 2023 Free Software Foundation, Inc.
 ##
 ## This program is free software: you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -12,11 +12,11 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with this program.  If not, see <http://www.gnu.org/licenses/>.
+## along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Process this file with automake to produce Makefile.in.
 
-AUTOMAKE_OPTIONS = 1.5 gnits no-dependencies
+AUTOMAKE_OPTIONS = 1.5 gnits no-dependencies subdir-objects
 EXTRA_DIST =
 BUILT_SOURCES =
 MOSTLYCLEANFILES = core *.stackdump
@@ -27,7 +27,14 @@ MAINTAINERCLEANFILES =
 
 noinst_LIBRARIES =
 
-AM_CPPFLAGS = -I.. -I../gnulib-lib -I$(top_srcdir)/gnulib-lib -I../intl
+# Note that Automake's $(DEFAULT_INCLUDES) already contains
+# -I. -I$(srcdir) -I$(top_builddir).
+AM_CPPFLAGS = \
+  -I../gnulib-lib -I$(top_srcdir)/gnulib-lib \
+  -I../../gettext-runtime/intl
+
+# Enable more warning options in this directory.
+AM_CFLAGS = @WARN_CFLAGS@
 
 # Rules generated and collected by gnulib-tool, for building libgrep.a.
 include Makefile.gnulib

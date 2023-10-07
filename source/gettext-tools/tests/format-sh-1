@@ -1,11 +1,8 @@
 #! /bin/sh
+. "${srcdir=.}/init.sh"; path_prepend_ . ../src
 
 # Test recognition of Shell format strings.
 
-tmpfiles=""
-trap 'rm -fr $tmpfiles' 1 2 3 15
-
-tmpfiles="$tmpfiles f-sh-1.data"
 cat <<\EOF > f-sh-1.data
 # Invalid: no argument
 "abc"
@@ -40,12 +37,11 @@ n=0
 while read comment; do
   read string
   n=`expr $n + 1`
-  tmpfiles="$tmpfiles f-sh-1-$n.in f-sh-1-$n.po"
-  sed -e 's,\$,\\$,g' <<EOF > f-sh-1-$n.in
+  LC_ALL=C sed -e 's,\$,\\$,g' <<EOF > f-sh-1-$n.in
 gettext ${string};
 EOF
-  ${XGETTEXT} -L Shell --from-code=ISO-8859-1 -o f-sh-1-$n.po f-sh-1-$n.in || exit 1
-  test -f f-sh-1-$n.po || exit 1
+  ${XGETTEXT} -L Shell --from-code=ISO-8859-1 -o f-sh-1-$n.po f-sh-1-$n.in || Exit 1
+  test -f f-sh-1-$n.po || Exit 1
   fail=
   if echo "$comment" | grep 'Valid:' > /dev/null; then
     if grep sh-format f-sh-1-$n.po > /dev/null; then
@@ -65,11 +61,9 @@ EOF
     cat f-sh-1-$n.in 1>&2
     echo "Got:" 1>&2
     cat f-sh-1-$n.po 1>&2
-    exit 1
+    Exit 1
   fi
   rm -f f-sh-1-$n.in f-sh-1-$n.po
 done < f-sh-1.data
 
-rm -fr $tmpfiles
-
-exit 0
+Exit 0

@@ -1,11 +1,40 @@
-/*
- * Summary: lists interfaces
- * Description: this module implement the list support used in 
- * various place in the library.
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
  *
- * Copy: See Copyright for the status of this software.
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  *
  * Author: Gary Pennington <Gary.Pennington@uk.sun.com>
+ */
+
+/*
+ * Summary: lists interfaces
+ * Description: this module implement the list support used in
+ * various place in the library.
  */
 
 #ifndef __XML_LINK_INCLUDE__
@@ -49,82 +78,82 @@ typedef int  (*xmlListDataCompare) (const void *data0, const void *data1);
  *
  * Returns 0 to stop walking the list, 1 otherwise.
  */
-typedef int (*xmlListWalker) (const void *data, const void *user);
+typedef int (*xmlListWalker) (const void *data, void *user);
 
 /* Creation/Deletion */
 XMLPUBFUN xmlListPtr XMLCALL
 		xmlListCreate		(xmlListDeallocator deallocator,
 	                                 xmlListDataCompare compare);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListDelete		(xmlListPtr l);
 
 /* Basic Operators */
-XMLPUBFUN void * XMLCALL		
+XMLPUBFUN void * XMLCALL
 		xmlListSearch		(xmlListPtr l,
 					 void *data);
-XMLPUBFUN void * XMLCALL		
+XMLPUBFUN void * XMLCALL
 		xmlListReverseSearch	(xmlListPtr l,
 					 void *data);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListInsert		(xmlListPtr l,
 					 void *data) ;
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListAppend		(xmlListPtr l,
 					 void *data) ;
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListRemoveFirst	(xmlListPtr l,
 					 void *data);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListRemoveLast	(xmlListPtr l,
 					 void *data);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListRemoveAll	(xmlListPtr l,
 					 void *data);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListClear		(xmlListPtr l);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListEmpty		(xmlListPtr l);
-XMLPUBFUN xmlLinkPtr XMLCALL	
+XMLPUBFUN xmlLinkPtr XMLCALL
 		xmlListFront		(xmlListPtr l);
-XMLPUBFUN xmlLinkPtr XMLCALL	
+XMLPUBFUN xmlLinkPtr XMLCALL
 		xmlListEnd		(xmlListPtr l);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListSize		(xmlListPtr l);
 
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListPopFront		(xmlListPtr l);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListPopBack		(xmlListPtr l);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListPushFront	(xmlListPtr l,
 					 void *data);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListPushBack		(xmlListPtr l,
 					 void *data);
 
 /* Advanced Operators */
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListReverse		(xmlListPtr l);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListSort		(xmlListPtr l);
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlListWalk		(xmlListPtr l,
 					 xmlListWalker walker,
-					 const void *user);
-XMLPUBFUN void XMLCALL		
+					 void *user);
+XMLPUBFUN void XMLCALL
 		xmlListReverseWalk	(xmlListPtr l,
 					 xmlListWalker walker,
-					 const void *user);
-XMLPUBFUN void XMLCALL		
+					 void *user);
+XMLPUBFUN void XMLCALL
 		xmlListMerge		(xmlListPtr l1,
 					 xmlListPtr l2);
-XMLPUBFUN xmlListPtr XMLCALL	
+XMLPUBFUN xmlListPtr XMLCALL
 		xmlListDup		(const xmlListPtr old);
-XMLPUBFUN int XMLCALL		
+XMLPUBFUN int XMLCALL
 		xmlListCopy		(xmlListPtr cur,
 					 const xmlListPtr old);
 /* Link operators */
-XMLPUBFUN void * XMLCALL          
+XMLPUBFUN void * XMLCALL
 		xmlLinkGetData          (xmlLinkPtr lk);
 
 /* xmlListUnique() */

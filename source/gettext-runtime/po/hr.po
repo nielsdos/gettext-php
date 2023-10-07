@@ -1,168 +1,166 @@
 # Translation of gettext-runtime to Croatian.
-# Copyright © 2012 Free Software Foundation, Inc.
+# Copyright (C) 2019 Free Software Foundation, Inc.
 # This file is distributed under the same license as the gettext package.
-# Tomislav Krznar <tomislav.krznar@gmail.com>, 2012.
+# Permission is granted to freely copy and distribute
+# this file and modified versions, provided that this
+# header is not removed and modified versions are marked
+# as such.
 #
+#
+# Tomislav Krznar <tomislav.krznar@gmail.com>, 2012.
+# Božidar Putanec <bozidarp@yahoo.com>, 2018, 2019, 2020, 2022, 2023.
 msgid ""
 msgstr ""
-"Project-Id-Version: GNU gettext-runtime 0.18\n"
-"Report-Msgid-Bugs-To: bug-gnu-gettext@gnu.org\n"
-"POT-Creation-Date: 2013-07-07 18:18+0900\n"
-"PO-Revision-Date: 2012-11-02 14:40+0100\n"
-"Last-Translator: Tomislav Krznar <tomislav.krznar@gmail.com>\n"
+"Project-Id-Version: gettext-runtime 0.22\n"
+"Report-Msgid-Bugs-To: bug-gettext@gnu.org\n"
+"POT-Creation-Date: 2023-06-15 20:33+0200\n"
+"PO-Revision-Date: 2023-06-18 12:54-0700\n"
+"Last-Translator: Božidar Putanec <bozidarp@yahoo.com>\n"
 "Language-Team: Croatian <lokalizacija@linux.hr>\n"
 "Language: hr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
-"%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
-"X-Generator: Lokalize 1.4\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"X-Bugs: Report translation errors to the Language-Team address.\n"
+"X-Generator: Poedit 3.3.1\n"
 
 # Provjeriti koje nazive parametara i varijabli okoline treba prevesti... (TK)
 #: gnulib-lib/closeout.c:66
 msgid "write error"
-msgstr "greška pisanja"
+msgstr "greška pri pisanju"
 
-#: gnulib-lib/error.c:188
+# Unrecognized is a synonym of unknown.
+# unrecognized is not recognized;
+# unknown is not known,  unidentified, not well known
+#: gnulib-lib/error.c:194
 msgid "Unknown system error"
 msgstr "Nepoznata greška sustava"
 
-#: gnulib-lib/getopt.c:547 gnulib-lib/getopt.c:576
-#, fuzzy, c-format
-msgid "%s: option '%s' is ambiguous; possibilities:"
-msgstr "%s: opcija „%s” je višeznačna\n"
-
-#: gnulib-lib/getopt.c:624 gnulib-lib/getopt.c:628
+# promijena svih završnih navodnika s „ na “
+#: gnulib-lib/getopt.c:278
 #, c-format
-msgid "%s: option '--%s' doesn't allow an argument\n"
-msgstr "%s: opcija „--%s” ne dozvoljava argument\n"
+msgid "%s: option '%s%s' is ambiguous\n"
+msgstr "%s: opcija „%s%s“ nije jednoznačna\n"
 
-#: gnulib-lib/getopt.c:637 gnulib-lib/getopt.c:642
+# ambiguous: having or ​expressing more than one ​possible ​meaning
+# ambiguous: able to be understood in more than one way
+# ambiguous se češće prevodi s „višeznačn“ ali ....
+#: gnulib-lib/getopt.c:284
 #, c-format
-msgid "%s: option '%c%s' doesn't allow an argument\n"
-msgstr "%s: opcija „%c%s” ne dozvoljava argument\n"
+msgid "%s: option '%s%s' is ambiguous; possibilities:"
+msgstr "%s: opcija „%s%s“ nije jednoznačna; mogućnosti su:"
 
-#: gnulib-lib/getopt.c:685 gnulib-lib/getopt.c:704
+#: gnulib-lib/getopt.c:319
 #, c-format
-msgid "%s: option '--%s' requires an argument\n"
-msgstr "%s: opcija „--%s” zahtijeva argument\n"
+msgid "%s: unrecognized option '%s%s'\n"
+msgstr "%s: neprepoznata opcija „%s%s“\n"
 
-#: gnulib-lib/getopt.c:742 gnulib-lib/getopt.c:745
+#: gnulib-lib/getopt.c:345
 #, c-format
-msgid "%s: unrecognized option '--%s'\n"
-msgstr "%s: neprepoznata opcija „--%s”\n"
+msgid "%s: option '%s%s' doesn't allow an argument\n"
+msgstr "%s: opcija „%s%s“ ne dopušta argument\n"
 
-#: gnulib-lib/getopt.c:753 gnulib-lib/getopt.c:756
+#: gnulib-lib/getopt.c:360
 #, c-format
-msgid "%s: unrecognized option '%c%s'\n"
-msgstr "%s: neprepoznata opcija „%c%s”\n"
+msgid "%s: option '%s%s' requires an argument\n"
+msgstr "%s: opcija „%s%s“ zahtijeva argument\n"
 
-#: gnulib-lib/getopt.c:805 gnulib-lib/getopt.c:808
+#: gnulib-lib/getopt.c:621
 #, c-format
 msgid "%s: invalid option -- '%c'\n"
-msgstr "%s: neispravna opcija -- „%c”\n"
+msgstr "%s: nevaljana opcija -- „%c“\n"
 
-#: gnulib-lib/getopt.c:861 gnulib-lib/getopt.c:878 gnulib-lib/getopt.c:1088
-#: gnulib-lib/getopt.c:1106
+#: gnulib-lib/getopt.c:636 gnulib-lib/getopt.c:682
 #, c-format
 msgid "%s: option requires an argument -- '%c'\n"
-msgstr "%s: opcija zahtijeva argument -- „%c”\n"
+msgstr "%s: opcija zahtijeva argument -- „%c“\n"
 
-#: gnulib-lib/getopt.c:934 gnulib-lib/getopt.c:950
-#, c-format
-msgid "%s: option '-W %s' is ambiguous\n"
-msgstr "%s: opcija „-W %s” je višeznačna\n"
-
-#: gnulib-lib/getopt.c:974 gnulib-lib/getopt.c:992
-#, c-format
-msgid "%s: option '-W %s' doesn't allow an argument\n"
-msgstr "%s: opcija „-W %s” ne dozvoljava argument\n"
-
-#: gnulib-lib/getopt.c:1013 gnulib-lib/getopt.c:1031
-#, c-format
-msgid "%s: option '-W %s' requires an argument\n"
-msgstr "%s: opcija „-W %s” zahtijeva argument\n"
-
-#: gnulib-lib/xmalloc.c:37
-#, c-format
+# doslovni prijevod iscrpljen ima više smisao izmučen = malaksao
+#: gnulib-lib/xalloc-die.c:34
 msgid "memory exhausted"
-msgstr "memorija iscrpljena"
+msgstr "nema dovoljno memorije"
 
-#: src/envsubst.c:112 src/gettext.c:133 src/ngettext.c:123
+#: src/envsubst.c:110 src/gettext.c:135 src/ngettext.c:125
 #, c-format, no-wrap
 msgid ""
 "Copyright (C) %s Free Software Foundation, Inc.\n"
-"License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n"
+"License GPLv3+: GNU GPL version 3 or later <%s>\n"
 "This is free software: you are free to change and redistribute it.\n"
 "There is NO WARRANTY, to the extent permitted by law.\n"
 msgstr ""
-"Copyright © %s Free Software Foundation, Inc.\n"
-"Licenca GPLv3+: GNU GPL inačica 3 ili novija <http://gnu.org/licenses/gpl.html>\n"
-"Ovo je slobodan softver: slobodno ga smijete mijenjati i dijeliti.\n"
-"NEMA JAMSTAVA, do krajnje mjere dozvoljene zakonom.\n"
+"Copyright (C) %s Free Software Foundation, Inc.\n"
+"Licenca GPLv3+: GNU GPL inačica 3 ili novija <%s>\n"
+"Ovo je slobodan softver: slobodno ga mijenjajte i dijelite.\n"
+"NEMA JAMSTVA do granica dopuštenih zakonom.\n"
 
-#: src/envsubst.c:118 src/gettext.c:139 src/ngettext.c:129
+#: src/envsubst.c:116 src/gettext.c:141 src/ngettext.c:131
 #, c-format
 msgid "Written by %s.\n"
 msgstr "Napisao %s.\n"
 
 #. This is a proper name. See the gettext manual, section Names.
-#: src/envsubst.c:118
+#: src/envsubst.c:116
 msgid "Bruno Haible"
 msgstr "Bruno Haible"
 
-#: src/envsubst.c:127 src/gettext.c:157 src/ngettext.c:141
+#: src/envsubst.c:125 src/gettext.c:159 src/ngettext.c:143
 #, c-format
 msgid "too many arguments"
 msgstr "previše argumenata"
 
-#: src/envsubst.c:138 src/gettext.c:167 src/ngettext.c:153
+#: src/envsubst.c:136 src/gettext.c:169 src/ngettext.c:155
 #, c-format
 msgid "missing arguments"
-msgstr "nedostaju argumenti"
+msgstr "nema argumenata"
 
-#: src/envsubst.c:171 src/gettext.c:238 src/ngettext.c:207
-#, fuzzy, c-format
+#: src/envsubst.c:174 src/gettext.c:246 src/ngettext.c:212
+#, c-format
 msgid "Try '%s --help' for more information.\n"
-msgstr "Pokušajte „%s --help” za više informacija.\n"
+msgstr "Utipkajte „%s --help“ za pomoć i više informacija.\n"
 
-#: src/envsubst.c:176
+# gettext manual 15.5.2.3
+# SHELL-FORMAT su strings, as supported by  gettext and the ‘envsubst’ program, are strings with references to shell variables in the form $variable or ${variable}.
+# Naziv SHELL-FORMAT (LJUSKA-FORMAT) je zbunjujući. Predložiti neku drugu riječ za SHELL-FORMAT?
+#: src/envsubst.c:179
 #, c-format, no-wrap
 msgid "Usage: %s [OPTION] [SHELL-FORMAT]\n"
-msgstr "Uporaba: %s [OPCIJA] [OBLIK-LJUSKE]\n"
+msgstr "Uporaba: %s [OPCIJA] [FORMAT-LJUSKE]\n"
 
-#: src/envsubst.c:181
+#: src/envsubst.c:184
 #, c-format, no-wrap
 msgid "Substitutes the values of environment variables.\n"
 msgstr "Zamjenjuje vrijednosti varijabli okoline.\n"
 
-#: src/envsubst.c:185
-#, c-format, no-wrap
-msgid "Operation mode:\n"
-msgstr "Način rada:\n"
-
+# Operation mode (za razliku Mode of Operation) je više „u toku rada, u toku procesiranja“
 #: src/envsubst.c:188
 #, c-format, no-wrap
-msgid "  -v, --variables             output the variables occurring in SHELL-FORMAT\n"
-msgstr "  -v, --variables             ispiši varijable koje se nalaze u OBLIK-LJUSKE\n"
+msgid "Operation mode:\n"
+msgstr "Način rada (mode):\n"
 
-#: src/envsubst.c:192
+#: src/envsubst.c:191
+#, c-format, no-wrap
+msgid "  -v, --variables             output the variables occurring in SHELL-FORMAT\n"
+msgstr "  -v, --variables             ispiše varijable koje se javljaju u FORMAT-LJUSKE\n"
+
+#: src/envsubst.c:195 src/gettext.c:275 src/ngettext.c:242
 #, c-format, no-wrap
 msgid "Informative output:\n"
 msgstr "Informativni izlaz:\n"
 
-#: src/envsubst.c:195
-#, c-format, no-wrap
-msgid "  -h, --help                  display this help and exit\n"
-msgstr "  -h, --help                  prikaži ovu pomoć i izađi\n"
-
+# http://ihjj.hr iziđi umjesto izađi: „prikaži pomoć i iziđi“ Ili kraće samo „pomoć“, ili „ova pomoć“; glagoli nisu nužni, jer je iz konteksta sve jasno.
 #: src/envsubst.c:198
 #, c-format, no-wrap
-msgid "  -V, --version               output version information and exit\n"
-msgstr "  -V, --version               ispiši informacije o inačici i izađi\n"
+msgid "  -h, --help                  display this help and exit\n"
+msgstr "  -h, --help                  pokaže ovu pomoć i iziđe\n"
 
-#: src/envsubst.c:202
+#: src/envsubst.c:201
+#, c-format, no-wrap
+msgid "  -V, --version               output version information and exit\n"
+msgstr "  -V, --version               informira o inačici ovog programa i iziđe\n"
+
+# envsubst:Substitutes environment variables in „shell format strings“ ali samo (i samo onda) ako su formatu $VARIJABLA ili ${VARIJABLA}!
+#: src/envsubst.c:205
 #, c-format, no-wrap
 msgid ""
 "In normal operation mode, standard input is copied to standard output,\n"
@@ -172,83 +170,117 @@ msgid ""
 "substituted; otherwise all environment variables references occurring in\n"
 "standard input are substituted.\n"
 msgstr ""
-"U normalnom načinu rada, standardni ulaz se kopira na standardni izlaz,\n"
-"gdje se reference na varijable okoline oblika $VARIABLE ili ${VARIABLE}\n"
-"zamjenjuju odgovarajućim vrijednostima. Ako je zadan OBLIK-LJUSKE, samo\n"
-"se one varijable okoline referencirane u OBLIK-LJUSKE zamjenjuju, inače\n"
-"se zamjenjuju reference na sve varijable okoline koje se pojavljuju na\n"
-"standardnom ulazu.\n"
+"U običnom načinu rada standardni ulaz kopira se na standardni izlaz,\n"
+"s time da se referencije na varijable okoline u formatu $VARIJABLA ili\n"
+"${VARIJABLA} zamijene odgovarajućim vrijednostima. Ako je navedeni argument\n"
+"FORMAT-LJUSKE, onda će samo one varijable okoline s referencijom u\n"
+"FORMAT-LJUSKE biti zamijenjene; u suprotnom, sve varijable okoline koje se\n"
+"pojavljuju na standardnom ulazu bit će zamijenjene.\n"
 
-#: src/envsubst.c:211
+#: src/envsubst.c:214
 #, c-format, no-wrap
 msgid ""
 "When --variables is used, standard input is ignored, and the output consists\n"
 "of the environment variables that are referenced in SHELL-FORMAT, one per line.\n"
 msgstr ""
-"Kada se koristi --variables, standardni ulaz se zanemaruje, a izlaz sadrži\n"
-"varijable okoline referencirane u OBLIK-LJUSKE, jedna po retku.\n"
+"Ako se koristi --variables, standardni ulaz je zanemaren, a izlaz se\n"
+"sastoji od onih varijabli okoline s referencijom u FORMAT-LJUSKE,\n"
+"po jedna po retku.\n"
 
-#. TRANSLATORS: The placeholder indicates the bug-reporting address
-#. for this package.  Please add _another line_ saying
+#. TRANSLATORS: The first placeholder is the web address of the Savannah
+#. project of this package.  The second placeholder is the bug-reporting
+#. email address for this package.  Please add _another line_ saying
 #. "Report translation bugs to <...>\n" with the address for translation
 #. bugs (typically your translation team's web or email address).
-#: src/envsubst.c:219 src/gettext.c:279 src/ngettext.c:245
-msgid "Report bugs to <bug-gnu-gettext@gnu.org>.\n"
+#: src/envsubst.c:223 src/gettext.c:299 src/ngettext.c:263
+#, c-format
+msgid ""
+"Report bugs in the bug tracker at <%s>\n"
+"or by email to <%s>.\n"
 msgstr ""
-"Prijavite greške na <bug-gnu-gettext@gnu.org>.\n"
-"Prijavite greške prijevoda na <lokalizacija@linux.hr>.\n"
+"Greške prijavite u ‘bug tracker’ na <%s>\n"
+"ili e-poštom na <%s>.\n"
 
-#: src/envsubst.c:442
+#: src/envsubst.c:451
 #, c-format
 msgid "error while reading \"%s\""
-msgstr "greška pri čitanju „%s”"
+msgstr "greška pri čitanju „%s“"
 
-#: src/envsubst.c:443
+#: src/envsubst.c:451
 msgid "standard input"
 msgstr "standardni ulaz"
 
 #. This is a proper name. See the gettext manual, section Names.
-#: src/gettext.c:139 src/ngettext.c:129
+#: src/gettext.c:141 src/ngettext.c:131
 msgid "Ulrich Drepper"
 msgstr "Ulrich Drepper"
 
-#: src/gettext.c:243
+# 15.5.2.3 Invoking the gettext program
+# gettext [option] [[textdomain] msgid]
+# gettext [option] -s [msgid]...
+# Upute koriste „msgid“, pa je možda bolje ne prevađati tu riječ.
+#: src/gettext.c:251
 #, c-format, no-wrap
 msgid ""
 "Usage: %s [OPTION] [[TEXTDOMAIN] MSGID]\n"
 "or:    %s [OPTION] -s [MSGID]...\n"
 msgstr ""
-"Uporaba: %s [OPCIJA] [[TEKSTDOMENA] ID-PORUKE]\n"
-"ili:     %s [OPCIJA] -s [ID-PORUKE]...\n"
+"Uporaba: %s [OPCIJA] [[TEKSTDOMENA] MSGID]\n"
+"    ili: %s [OPCIJA] -s [MSGID]...\n"
 
-#: src/gettext.c:249
+# http://ihjj.hr: „materinji“ > „materinski“
+#: src/gettext.c:257
 #, c-format, no-wrap
 msgid "Display native language translation of a textual message.\n"
-msgstr "Prikaži prijevod tekstualne poruke na materinji jezik.\n"
+msgstr "Ispiše prijevod tekstne poruke.\n"
 
-#: src/gettext.c:253
+#: src/gettext.c:261
 #, c-format, no-wrap
+msgid "  -d, --domain=TEXTDOMAIN   retrieve translated messages from TEXTDOMAIN\n"
+msgstr "  -d, --domain=TEKSTDOMENA  traži prevedene poruke iz TEKSTDOMENE\n"
+
+#: src/gettext.c:263 src/ngettext.c:229
+#, c-format
+msgid "  -c, --context=CONTEXT     specify context for MSGID\n"
+msgstr "  -c, --context=KONTEKST    specifikacija konteksta za MSGID\n"
+
+#: src/gettext.c:265 src/ngettext.c:231
+#, c-format
+msgid "  -e                        enable expansion of some escape sequences\n"
+msgstr "  -e                        omogući ekspanziju nekih kontrolnih nizova\n"
+
+#: src/gettext.c:267
+#, c-format
+msgid "  -n                        suppress trailing newline\n"
+msgstr "  -n                        ne ostavlja prazni redak na kraju datoteke\n"
+
+#: src/gettext.c:269 src/ngettext.c:233
+#, c-format
+msgid "  -E                        (ignored for compatibility)\n"
+msgstr "  -E                        (zanemareno zbog kompatibilnosti)\n"
+
+#: src/gettext.c:271
+#, c-format
 msgid ""
-"  -d, --domain=TEXTDOMAIN   retrieve translated messages from TEXTDOMAIN\n"
-"  -e                        enable expansion of some escape sequences\n"
-"  -E                        (ignored for compatibility)\n"
-"  -h, --help                display this help and exit\n"
-"  -n                        suppress trailing newline\n"
-"  -V, --version             display version information and exit\n"
 "  [TEXTDOMAIN] MSGID        retrieve translated message corresponding\n"
 "                            to MSGID from TEXTDOMAIN\n"
 msgstr ""
-"  -d, --domain=TEKSTDOMENA  dohvati prevedene poruke iz TEKSTDOMENA\n"
-"  -e                        omogući proširivanje nekih izlaznih nizova\n"
-"  -E                        (zanemareno zbog kompatibilnosti)\n"
-"  -h, --help                prikaži ovu pomoć i izađi\n"
-"  -n                        izostavi završnu oznaku novog retka\n"
-"  -V, --version             prikaži informacije o inačici i izađi\n"
-"  [TEKSTDOMENA] [ID-PORUKE] dohvati prevedene poruke koje odgovaraju\n"
-"                            ID-PORUKE iz TEKSTDOMENA\n"
+"  [TEKSTDOMENA] MSGID       preuzme prevedenu poruku koja odgovara\n"
+"                              navedenom MSGID-u iz TEKSTDOMENE\n"
 
-#: src/gettext.c:264
-#, fuzzy, c-format, no-wrap
+# http://ihjj.hr iziđi umjesto izađi: „prikaži pomoć i iziđi“ Ili kraće samo „pomoć“, ili „ova pomoć“; glagoli nisu nužni, jer je iz konteksta sve jasno.
+#: src/gettext.c:277 src/ngettext.c:244
+#, c-format
+msgid "  -h, --help                display this help and exit\n"
+msgstr "  -h, --help                pokaže ovu pomoć i iziđe\n"
+
+#: src/gettext.c:279 src/ngettext.c:246
+#, c-format
+msgid "  -V, --version             display version information and exit\n"
+msgstr "  -V, --version             informira o inačici ovog programa i iziđe\n"
+
+#: src/gettext.c:283
+#, c-format, no-wrap
 msgid ""
 "If the TEXTDOMAIN parameter is not given, the domain is determined from the\n"
 "environment variable TEXTDOMAIN.  If the message catalog is not found in the\n"
@@ -259,51 +291,50 @@ msgid ""
 "found in the selected catalog are translated.\n"
 "Standard search directory: %s\n"
 msgstr ""
-"Ako parametar TEKSTDOMENA nije naveden, domena se određuje iz varijable\n"
-"okoline TEXTDOMAIN. Ako katalog poruka nije pronađen u uobičajenom\n"
-"direktoriju, druga lokacija se može navesti varijablom okoline TEXTDOMAINDIR.\n"
-"Kada se koristi uz opciju -s, program se ponaša kao naredba „echo”, no ne\n"
-"kopira argumente na standardni izlaz, već prevodi poruke pronađene u\n"
-"odabranom katalogu.\n"
-"Uobičajeni direktorij za pretragu: %s\n"
-
-#: src/ngettext.c:212
-#, c-format, no-wrap
-msgid "Usage: %s [OPTION] [TEXTDOMAIN] MSGID MSGID-PLURAL COUNT\n"
-msgstr "Uporaba: %s [OPCIJA] [TEXTDOMAIN] ID-PORUKE ID-MNOŽINE BROJ\n"
+"Ako parametar TEKSTDOMENA nije naveden, domenu određuje varijabla okoline\n"
+"TEXTDOMAIN. Ako katalog poruka nije pronađen u uobičajenom direktoriju,\n"
+"alternativna lokacija može se zadati varijablom okoline TEXTDOMAINDIR.\n"
+"\n"
+"Kad se koristi opcija -s, program se ponaša kao naredba „echo“;\n"
+"ali umjesto jednostavnog ispisa svih svojih argumenata, program ispiše\n"
+"njihove prijevode ako ih nađe u odabranom katalogu (TEKSTDOMENA).\n"
+"\n"
+"Uobičajeni direktorij za pretragu je: %s\n"
 
 #: src/ngettext.c:217
+#, c-format, no-wrap
+msgid "Usage: %s [OPTION] [TEXTDOMAIN] MSGID MSGID-PLURAL COUNT\n"
+msgstr "Uporaba: %s [OPCIJA] [TEKSTDOMENA] MSGID MSGID-PLURAL BROJ\n"
+
+# http://ihjj.hr: „materinji“ > „materinski“
+#: src/ngettext.c:222
 #, c-format, no-wrap
 msgid ""
 "Display native language translation of a textual message whose grammatical\n"
 "form depends on a number.\n"
-msgstr ""
-"Prikaži prijevod tekstualne poruke čiji gramatički oblik ovisi o broju na\n"
-"materinji jezik.\n"
+msgstr "Ispiše prijevod tekstne poruke čiji gramatički oblik ovisi o broju\n"
 
-#: src/ngettext.c:222
+#: src/ngettext.c:227
 #, c-format, no-wrap
-msgid ""
-"  -d, --domain=TEXTDOMAIN   retrieve translated message from TEXTDOMAIN\n"
-"  -e                        enable expansion of some escape sequences\n"
-"  -E                        (ignored for compatibility)\n"
-"  -h, --help                display this help and exit\n"
-"  -V, --version             display version information and exit\n"
-"  [TEXTDOMAIN]              retrieve translated message from TEXTDOMAIN\n"
-"  MSGID MSGID-PLURAL        translate MSGID (singular) / MSGID-PLURAL (plural)\n"
-"  COUNT                     choose singular/plural form based on this value\n"
-msgstr ""
-"  -d, --domain=TEKSTDOMENA  dohvati prevedenu poruku iz TEKSTDOMENA\n"
-"  -e                        omogući proširivanje nekih izlaznih nizova\n"
-"  -E                        (zanemareno zbog kompatibilnosti)\n"
-"  -h, --help                prikaži ovu pomoć i izađi\n"
-"  -V, --version             prikaži informacije o inačici i izađi\n"
-"  [TEKSTDOMENA]             dohvati prevedenu poruku iz TEKSTDOMENA\n"
-"  ID-PORUKE ID-MNOŽINE      prevedi ID-PORUKE (jednina) / ID-MNOŽINE (množina)\n"
-"  BROJ                      odaberi oblik jednine/množine ovisno o ovoj\n"
-"                            vrijednosti\n"
+msgid "  -d, --domain=TEXTDOMAIN   retrieve translated message from TEXTDOMAIN\n"
+msgstr "  -d, --domain=TEKSTDOMENA  preuzme prevedene poruke iz TEKSTDOMENE\n"
 
-#: src/ngettext.c:233
+#: src/ngettext.c:235
+#, c-format
+msgid "  [TEXTDOMAIN]              retrieve translated message from TEXTDOMAIN\n"
+msgstr "  [TEKSTDOMENA]             preuzme prevedene poruke iz TEKSTDOMENE\n"
+
+#: src/ngettext.c:237
+#, c-format
+msgid "  MSGID MSGID-PLURAL        translate MSGID (singular) / MSGID-PLURAL (plural)\n"
+msgstr "  MSGID MSGID-PLURAL        prevede MSGID (singular) / MSGID-PLURAL (plural)\n"
+
+#: src/ngettext.c:239
+#, c-format
+msgid "  COUNT                     choose singular/plural form based on this value\n"
+msgstr "  BROJ                      odabere formu singular/plural po BROJU\n"
+
+#: src/ngettext.c:250
 #, c-format, no-wrap
 msgid ""
 "If the TEXTDOMAIN parameter is not given, the domain is determined from the\n"
@@ -312,7 +343,79 @@ msgid ""
 "variable TEXTDOMAINDIR.\n"
 "Standard search directory: %s\n"
 msgstr ""
-"Ako parametar TEKSTDOMENA nije naveden, domena se određuje iz varijable\n"
-"okoline TEXTDOMAIN. Ako katalog poruka nije pronađen u uobičajenom\n"
-"direktoriju, druga lokacija se može navesti varijablom okoline TEXTDOMAINDIR.\n"
-"Uobičajeni direktorij za pretragu: %s\n"
+"Ako parametar TEKSTDOMENA nije naveden, domenu određuje varijabla okoline\n"
+"TEXTDOMAIN. Ako katalog poruka nije pronađen u uobičajenom direktoriju,\n"
+"alternativna lokacija može se zadati varijablom okoline TEXTDOMAINDIR.\n"
+"\n"
+"Uobičajeni direktorij za pretragu je: %s\n"
+
+# Savjet lingvista: Ako može, onda je bolje upotrijebiti hrvatski red riječi, prvo subjekt, pa onda veznici, predikati....
+#~ msgid "Report bugs to <bug-gnu-gettext@gnu.org>.\n"
+#~ msgstr ""
+#~ "Greške u programu na engleskom javite na <bug-gnu-gettext@gnu.org>.\n"
+#~ "Primjedbe i pogreške u prijevodu javite na <lokalizacija@linux.hr>.\n"
+
+# http://ihjj.hr/: „dopustiti“ umjesto „dozvoliti“. Umjesto „ne dopušta“/„zahtijeva“ predlažem „ne očekuje“/„očekuje“
+#~ msgid "%s: option '--%s' doesn't allow an argument\n"
+#~ msgstr "%s: opcija „--%s“ ne dopušta argument\n"
+
+# http://wikidiff.com/unknown/unrecognized: Unrecognized is a synonym of unknown; lingivisti ne preporučuju „nepropoznata“, ako se koristi „nije prepoznata“
+#~ msgid "%s: unrecognized option '--%s'\n"
+#~ msgstr "%s: nepoznata opcija „--%s“\n"
+
+#~ msgid "%s: option '-W %s' is ambiguous\n"
+#~ msgstr "%s: opcija „-W %s“ nije jednoznačna\n"
+
+#~ msgid "%s: option '-W %s' doesn't allow an argument\n"
+#~ msgstr "%s: opcija „-W %s“ ne dopušta argument\n"
+
+#~ msgid "%s: option '-W %s' requires an argument\n"
+#~ msgstr "%s: opcija „-W %s“ zahtijeva argument\n"
+
+# „retrieve“ podrazumijeva implicitno postojane prijevoda; ako prijevoda nema, onda ga ne može „retrieve“; zato promjena  „retrieve“ >  „traži“
+# jd./mn. za poruke slijedi gettext Manual.
+#~ msgid ""
+#~ "  -d, --domain=TEXTDOMAIN   retrieve translated messages from TEXTDOMAIN\n"
+#~ "  -e                        enable expansion of some escape sequences\n"
+#~ "  -E                        (ignored for compatibility)\n"
+#~ "  -h, --help                display this help and exit\n"
+#~ "  -n                        suppress trailing newline\n"
+#~ "  -V, --version             display version information and exit\n"
+#~ "  [TEXTDOMAIN] MSGID        retrieve translated message corresponding\n"
+#~ "                            to MSGID from TEXTDOMAIN\n"
+#~ msgstr ""
+#~ "  -d, --domain=TEKSTDOMENA  traži prevedene poruke iz TEKSTDOMENE\n"
+#~ "  -e                        omogući proširenje nekih escape sekvencija\n"
+#~ "  -E                        (ignorira se zbog kompatibilnosti)\n"
+#~ "  -h, --help                pokaže ovu pomoć i iziđe\n"
+#~ "  -n                        bez završnog znaka novog retka\n"
+#~ "  -V, --version             informira o inačici ovog programa i iziđe\n"
+#~ "  [TEKSTDOMENA] MSGID       potraži prevedenu poruku\n"
+#~ "                              za MSGID u TEKSTDOMENI\n"
+
+# 15.5.2.4 Invoking the ngettext program
+# ngettext [option] [textdomain] msgid msgid-plural count
+# U uputama „messages“ su u pluralu, u po file su u singularu. Slijedimo Upute.
+# „retrieve“ podrazumijeva implicitno
+# postojane prijevoda; ako prijevoda
+# nema, onda ga ne može „retrieve“; zato
+# promjena „retrieve“ > „traži“
+# jd./mn. za poruke slijedi gettext Manual.
+#~ msgid ""
+#~ "  -d, --domain=TEXTDOMAIN   retrieve translated message from TEXTDOMAIN\n"
+#~ "  -e                        enable expansion of some escape sequences\n"
+#~ "  -E                        (ignored for compatibility)\n"
+#~ "  -h, --help                display this help and exit\n"
+#~ "  -V, --version             display version information and exit\n"
+#~ "  [TEXTDOMAIN]              retrieve translated message from TEXTDOMAIN\n"
+#~ "  MSGID MSGID-PLURAL        translate MSGID (singular) / MSGID-PLURAL (plural)\n"
+#~ "  COUNT                     choose singular/plural form based on this value\n"
+#~ msgstr ""
+#~ "  -d, --domain=TEKSTDOMENA  traži prevedene poruke iz TEKSTDOMENA\n"
+#~ "  -e                        omogući proširenje nekih escape sekvencija\n"
+#~ "  -E                        (ignorira se zbog kompatibilnosti)\n"
+#~ "  -h, --help                pokaže ovu pomoć i iziđe\n"
+#~ "  -V, --version             informira o inačici ovog programa i iziđe\n"
+#~ "  [TEKSTDOMENA]             potraži prevedenu poruku u TEKSTDOMENI\n"
+#~ "  MSGID MSGID-PLURAL        prijevod za MSGID (jednina)/MSGID-PLURAL (množina)\n"
+#~ "  BROJ                      odabere oblik za jd./mn. na temelju ovog BROJA\n"

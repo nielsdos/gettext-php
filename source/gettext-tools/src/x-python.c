@@ -1,5 +1,5 @@
 /* xgettext Python backend.
-   Copyright (C) 2002-2003, 2005-2013 Free Software Foundation, Inc.
+   Copyright (C) 2002-2003, 2005-2011, 2013-2014, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <haible@clisp.cons.org>, 2002.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -30,12 +30,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "attribute.h"
 #include "message.h"
+#include "rc-str-list.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-encoding.h"
+#include "xg-mixed-string.h"
+#include "xg-arglist-context.h"
+#include "xg-arglist-callshape.h"
+#include "xg-arglist-parser.h"
+#include "xg-message.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "xerror.h"
 #include "xvasprintf.h"
 #include "xalloc.h"
@@ -48,6 +57,7 @@
 
 #define _(s) gettext(s)
 
+#undef max /* clean up after MSVC's <stdlib.h> */
 #define max(a,b) ((a) > (b) ? (a) : (b))
 
 #define SIZEOF(a) (sizeof(a) / sizeof(a[0]))
@@ -149,13 +159,6 @@ init_flag_table_python ()
 
 
 /* ======================== Reading of characters.  ======================== */
-
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
 
 /* The input file stream.  */
 static FILE *fp;
@@ -277,7 +280,7 @@ phase2_getc ()
                                                                line_number),
                                       _("\
 Please specify the source encoding through --from-code or through a comment\n\
-as specified in http://www.python.org/peps/pep-0263.html.\n")));
+as specified in https://www.python.org/peps/pep-0263.html.\n")));
           exit (EXIT_FAILURE);
         }
       return c;
@@ -290,11 +293,14 @@ as specified in http://www.python.org/peps/pep-0263.html.\n")));
          interactive behaviour when fp is connected to an interactive tty.  */
       unsigned char buf[MAX_PHASE1_PUSHBACK];
       size_t bufcount;
-      int c = phase1_getc ();
-      if (c == EOF)
-        return UEOF;
-      buf[0] = (unsigned char) c;
-      bufcount = 1;
+
+      {
+        int c = phase1_getc ();
+        if (c == EOF)
+          return UEOF;
+        buf[0] = (unsigned char) c;
+        bufcount = 1;
+      }
 
       for (;;)
         {
@@ -320,13 +326,7 @@ as specified in http://www.python.org/peps/pep-0263.html.\n")));
               if (errno == EILSEQ)
                 {
                   /* An invalid multibyte sequence was encountered.  */
-                  multiline_error (xstrdup (""),
-                                   xasprintf (_("\
-%s:%d: Invalid multibyte sequence.\n\
-Please specify the correct source encoding through --from-code or through a\n\
-comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
-                                   real_file_name, line_number));
-                  exit (EXIT_FAILURE);
+                  goto invalid;
                 }
               else if (errno == EINVAL)
                 {
@@ -341,7 +341,7 @@ comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
                                        xasprintf (_("\
 %s:%d: Long incomplete multibyte sequence.\n\
 Please specify the correct source encoding through --from-code or through a\n\
-comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
+comment as specified in https://www.python.org/peps/pep-0263.html.\n"),
                                        real_file_name, line_number));
                       exit (EXIT_FAILURE);
                     }
@@ -349,25 +349,9 @@ comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
                   /* Read one more byte and retry iconv.  */
                   c = phase1_getc ();
                   if (c == EOF)
-                    {
-                      multiline_error (xstrdup (""),
-                                       xasprintf (_("\
-%s:%d: Incomplete multibyte sequence at end of file.\n\
-Please specify the correct source encoding through --from-code or through a\n\
-comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
-                                       real_file_name, line_number));
-                      exit (EXIT_FAILURE);
-                    }
+                    goto incomplete_at_eof;
                   if (c == '\n')
-                    {
-                      multiline_error (xstrdup (""),
-                                       xasprintf (_("\
-%s:%d: Incomplete multibyte sequence at end of line.\n\
-Please specify the correct source encoding through --from-code or through a\n\
-comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
-                                       real_file_name, line_number - 1));
-                      exit (EXIT_FAILURE);
-                    }
+                    goto incomplete_at_eol;
                   buf[bufcount++] = (unsigned char) c;
                 }
               else
@@ -393,13 +377,7 @@ comment as specified in http://www.python.org/peps/pep-0263.html.\n"),
                 {
                   /* scratchbuf contains an out-of-range Unicode character
                      (> 0x10ffff).  */
-                  multiline_error (xstrdup (""),
-                                   xasprintf (_("\
-%s:%d: Invalid multibyte sequence.\n\
-Please specify the source encoding through --from-code or through a comment\n\
-as specified in http://www.python.org/peps/pep-0263.html.\n"),
-                                   real_file_name, line_number));
-                  exit (EXIT_FAILURE);
+                  goto invalid;
                 }
               return uc;
             }
@@ -413,76 +391,129 @@ as specified in http://www.python.org/peps/pep-0263.html.\n"),
     }
   else
     {
-      /* Read an UTF-8 encoded character.  */
-      unsigned char buf[6];
-      unsigned int count;
+      /* Read an UTF-8 encoded character.
+         Reject invalid input, like u8_mbtouc does.  */
       int c;
       ucs4_t uc;
 
       c = phase1_getc ();
       if (c == EOF)
         return UEOF;
-      buf[0] = c;
-      count = 1;
-
-      if (buf[0] >= 0xc0)
+      if (c < 0x80)
         {
-          c = phase1_getc ();
-          if (c == EOF)
-            return UEOF;
-          buf[1] = c;
-          count = 2;
+          uc = c;
         }
-
-      if (buf[0] >= 0xe0
-          && ((buf[1] ^ 0x80) < 0x40))
+      else if (c < 0xc2)
+        goto invalid;
+      else if (c < 0xe0)
         {
-          c = phase1_getc ();
-          if (c == EOF)
-            return UEOF;
-          buf[2] = c;
-          count = 3;
+          int c1 = phase1_getc ();
+          if (c1 == EOF)
+            goto incomplete_at_eof;
+          if (c1 == '\n')
+            goto incomplete_at_eol;
+          if ((c1 ^ 0x80) < 0x40)
+            uc = ((unsigned int) (c & 0x1f) << 6)
+                 | (unsigned int) (c1 ^ 0x80);
+          else
+            goto invalid;
         }
-
-      if (buf[0] >= 0xf0
-          && ((buf[1] ^ 0x80) < 0x40)
-          && ((buf[2] ^ 0x80) < 0x40))
+      else if (c < 0xf0)
         {
-          c = phase1_getc ();
-          if (c == EOF)
-            return UEOF;
-          buf[3] = c;
-          count = 4;
+          int c1 = phase1_getc ();
+          if (c1 == EOF)
+            goto incomplete_at_eof;
+          if (c1 == '\n')
+            goto incomplete_at_eol;
+          if ((c1 ^ 0x80) < 0x40
+              && (c >= 0xe1 || c1 >= 0xa0)
+              && (c != 0xed || c1 < 0xa0))
+            {
+              int c2 = phase1_getc ();
+              if (c2 == EOF)
+                goto incomplete_at_eof;
+              if (c2 == '\n')
+                goto incomplete_at_eol;
+              if ((c2 ^ 0x80) < 0x40)
+                uc = ((unsigned int) (c & 0x0f) << 12)
+                     | ((unsigned int) (c1 ^ 0x80) << 6)
+                     | (unsigned int) (c2 ^ 0x80);
+              else
+                goto invalid;
+            }
+          else
+            goto invalid;
         }
-
-      if (buf[0] >= 0xf8
-          && ((buf[1] ^ 0x80) < 0x40)
-          && ((buf[2] ^ 0x80) < 0x40)
-          && ((buf[3] ^ 0x80) < 0x40))
+      else if (c < 0xf8)
         {
-          c = phase1_getc ();
-          if (c == EOF)
-            return UEOF;
-          buf[4] = c;
-          count = 5;
+          int c1 = phase1_getc ();
+          if (c1 == EOF)
+            goto incomplete_at_eof;
+          if (c1 == '\n')
+            goto incomplete_at_eol;
+          if ((c1 ^ 0x80) < 0x40
+              && (c >= 0xf1 || c1 >= 0x90)
+              && (c < 0xf4 || (c == 0xf4 && c1 < 0x90)))
+            {
+              int c2 = phase1_getc ();
+              if (c2 == EOF)
+                goto incomplete_at_eof;
+              if (c2 == '\n')
+                goto incomplete_at_eol;
+              if ((c2 ^ 0x80) < 0x40)
+                {
+                  int c3 = phase1_getc ();
+                  if (c3 == EOF)
+                    goto incomplete_at_eof;
+                  if (c3 == '\n')
+                    goto incomplete_at_eol;
+                  if ((c3 ^ 0x80) < 0x40)
+                    uc = ((unsigned int) (c & 0x07) << 18)
+                         | ((unsigned int) (c1 ^ 0x80) << 12)
+                         | ((unsigned int) (c2 ^ 0x80) << 6)
+                         | (unsigned int) (c3 ^ 0x80);
+                  else
+                    goto invalid;
+                }
+              else
+                goto invalid;
+            }
+          else
+            goto invalid;
         }
+      else
+        goto invalid;
 
-      if (buf[0] >= 0xfc
-          && ((buf[1] ^ 0x80) < 0x40)
-          && ((buf[2] ^ 0x80) < 0x40)
-          && ((buf[3] ^ 0x80) < 0x40)
-          && ((buf[4] ^ 0x80) < 0x40))
-        {
-          c = phase1_getc ();
-          if (c == EOF)
-            return UEOF;
-          buf[5] = c;
-          count = 6;
-        }
-
-      u8_mbtouc (&uc, buf, count);
       return uc;
     }
+
+ invalid:
+  /* An invalid multibyte sequence was encountered.  */
+  multiline_error (xstrdup (""),
+                   xasprintf (_("\
+%s:%d: Invalid multibyte sequence.\n\
+Please specify the correct source encoding through --from-code or through a\n\
+comment as specified in https://www.python.org/peps/pep-0263.html.\n"),
+                   real_file_name, line_number));
+  exit (EXIT_FAILURE);
+
+ incomplete_at_eof:
+  multiline_error (xstrdup (""),
+                   xasprintf (_("\
+%s:%d: Incomplete multibyte sequence at end of file.\n\
+Please specify the correct source encoding through --from-code or through a\n\
+comment as specified in https://www.python.org/peps/pep-0263.html.\n"),
+                   real_file_name, line_number));
+  exit (EXIT_FAILURE);
+
+ incomplete_at_eol:
+  multiline_error (xstrdup (""),
+                   xasprintf (_("\
+%s:%d: Incomplete multibyte sequence at end of line.\n\
+Please specify the correct source encoding through --from-code or through a\n\
+comment as specified in https://www.python.org/peps/pep-0263.html.\n"),
+                   real_file_name, line_number - 1));
+  exit (EXIT_FAILURE);
 }
 
 /* Supports max (9, UNINAME_MAX + 3) pushback characters.  */
@@ -500,76 +531,7 @@ phase2_ungetc (int c)
 
 /* ========================= Accumulating strings.  ======================== */
 
-/* A string buffer type that allows appending Unicode characters.
-   Returns the entire string in UTF-8 encoding.  */
-
-struct unicode_string_buffer
-{
-  /* The part of the string that has already been converted to UTF-8.  */
-  char *utf8_buffer;
-  size_t utf8_buflen;
-  size_t utf8_allocated;
-};
-
-/* Initialize a 'struct unicode_string_buffer' to empty.  */
-static inline void
-init_unicode_string_buffer (struct unicode_string_buffer *bp)
-{
-  bp->utf8_buffer = NULL;
-  bp->utf8_buflen = 0;
-  bp->utf8_allocated = 0;
-}
-
-/* Auxiliary function: Ensure count more bytes are available in bp->utf8.  */
-static inline void
-unicode_string_buffer_append_unicode_grow (struct unicode_string_buffer *bp,
-                                           size_t count)
-{
-  if (bp->utf8_buflen + count > bp->utf8_allocated)
-    {
-      size_t new_allocated = 2 * bp->utf8_allocated + 10;
-      if (new_allocated < bp->utf8_buflen + count)
-        new_allocated = bp->utf8_buflen + count;
-      bp->utf8_allocated = new_allocated;
-      bp->utf8_buffer = xrealloc (bp->utf8_buffer, new_allocated);
-    }
-}
-
-/* Auxiliary function: Append a Unicode character to bp->utf8.
-   uc must be < 0x110000.  */
-static inline void
-unicode_string_buffer_append_unicode (struct unicode_string_buffer *bp,
-                                      unsigned int uc)
-{
-  unsigned char utf8buf[6];
-  int count = u8_uctomb (utf8buf, uc, 6);
-
-  if (count < 0)
-    /* The caller should have ensured that uc is not out-of-range.  */
-    abort ();
-
-  unicode_string_buffer_append_unicode_grow (bp, count);
-  memcpy (bp->utf8_buffer + bp->utf8_buflen, utf8buf, count);
-  bp->utf8_buflen += count;
-}
-
-/* Return the string buffer's contents.  */
-static char *
-unicode_string_buffer_result (struct unicode_string_buffer *bp)
-{
-  /* NUL-terminate it.  */
-  unicode_string_buffer_append_unicode_grow (bp, 1);
-  bp->utf8_buffer[bp->utf8_buflen] = '\0';
-  /* Return it.  */
-  return bp->utf8_buffer;
-}
-
-/* Free the memory pointed to by a 'struct unicode_string_buffer'.  */
-static inline void
-free_unicode_string_buffer (struct unicode_string_buffer *bp)
-{
-  free (bp->utf8_buffer);
-}
+/* See xg-mixed-string.h for the API.  */
 
 
 /* ======================== Accumulating comments.  ======================== */
@@ -577,31 +539,32 @@ free_unicode_string_buffer (struct unicode_string_buffer *bp)
 
 /* Accumulating a single comment line.  */
 
-static struct unicode_string_buffer comment_buffer;
+static struct mixed_string_buffer comment_buffer;
 
 static inline void
 comment_start ()
 {
-  lexical_context = lc_comment;
-  comment_buffer.utf8_buflen = 0;
+  mixed_string_buffer_init (&comment_buffer, lc_comment,
+                            logical_file_name, line_number);
 }
 
 static inline bool
 comment_at_start ()
 {
-  return (comment_buffer.utf8_buflen == 0);
+  return mixed_string_buffer_is_empty (&comment_buffer);
 }
 
 static inline void
 comment_add (int c)
 {
-  unicode_string_buffer_append_unicode (&comment_buffer, c);
+  mixed_string_buffer_append_unicode (&comment_buffer, c);
 }
 
 static inline const char *
 comment_line_end ()
 {
-  char *buffer = unicode_string_buffer_result (&comment_buffer);
+  char *buffer =
+    mixed_string_contents_free1 (mixed_string_buffer_result (&comment_buffer));
   size_t buflen = strlen (buffer);
 
   while (buflen >= 1
@@ -662,18 +625,16 @@ set_current_file_source_encoding (const char *canon_encoding)
 # endif
       cd = iconv_open (po_charset_utf8, xgettext_current_file_source_encoding);
       if (cd == (iconv_t)(-1))
-        error_at_line (EXIT_FAILURE, 0, logical_file_name, line_number - 1, _("\
-Cannot convert from \"%s\" to \"%s\". %s relies on iconv(), \
-and iconv() does not support this conversion."),
-               xgettext_current_file_source_encoding, po_charset_utf8,
-               basename (program_name));
+        error_at_line (EXIT_FAILURE, 0, logical_file_name, line_number - 1,
+                       _("Cannot convert from \"%s\" to \"%s\". %s relies on iconv(), and iconv() does not support this conversion."),
+                       xgettext_current_file_source_encoding, po_charset_utf8,
+                       last_component (program_name));
       xgettext_current_file_source_iconv = cd;
 #else
-      error_at_line (EXIT_FAILURE, 0, logical_file_name, line_number - 1, _("\
-Cannot convert from \"%s\" to \"%s\". %s relies on iconv(). \
-This version was built without iconv()."),
-             xgettext_global_source_encoding, po_charset_utf8,
-             basename (program_name));
+      error_at_line (EXIT_FAILURE, 0, logical_file_name, line_number - 1,
+                     _("Cannot convert from \"%s\" to \"%s\". %s relies on iconv(). This version was built without iconv()."),
+                     xgettext_current_file_source_encoding, po_charset_utf8,
+                     last_component (program_name));
 #endif
     }
 
@@ -719,8 +680,8 @@ try_to_extract_coding (const char *comment)
                     if (canon_encoding == NULL)
                       {
                         error_at_line (0, 0,
-                                       logical_file_name, line_number - 1, _("\
-Unknown encoding \"%s\". Proceeding with ASCII instead."),
+                                       logical_file_name, line_number - 1,
+                                       _("Unknown encoding \"%s\". Proceeding with ASCII instead."),
                                        encoding);
                         canon_encoding = po_charset_ascii;
                       }
@@ -739,7 +700,7 @@ Unknown encoding \"%s\". Proceeding with ASCII instead."),
 
 /* Tracking whether the current line is a continuation line or contains a
    non-blank character.  */
-static bool continuation_or_nonblank_line = false;
+static bool continuation_or_nonblank_line;
 
 
 /* Phase 3: Outside strings, replace backslash-newline with nothing and a
@@ -825,203 +786,6 @@ phase3_ungetc (int c)
    IS_UNICODE.  */
 #define UNICODE_VALUE(p7_result) ((p7_result) - 0x100)
 
-/* A string buffer type that allows appending bytes (in the
-   xgettext_current_source_encoding) or Unicode characters.
-   Returns the entire string in UTF-8 encoding.  */
-
-struct mixed_string_buffer
-{
-  /* The part of the string that has already been converted to UTF-8.  */
-  char *utf8_buffer;
-  size_t utf8_buflen;
-  size_t utf8_allocated;
-  /* The first half of an UTF-16 surrogate character.  */
-  unsigned short utf16_surr;
-  /* The part of the string that is still in the source encoding.  */
-  char *curr_buffer;
-  size_t curr_buflen;
-  size_t curr_allocated;
-  /* The lexical context.  Used only for error message purposes.  */
-  lexical_context_ty lcontext;
-};
-
-/* Initialize a 'struct mixed_string_buffer' to empty.  */
-static inline void
-init_mixed_string_buffer (struct mixed_string_buffer *bp, lexical_context_ty lcontext)
-{
-  bp->utf8_buffer = NULL;
-  bp->utf8_buflen = 0;
-  bp->utf8_allocated = 0;
-  bp->utf16_surr = 0;
-  bp->curr_buffer = NULL;
-  bp->curr_buflen = 0;
-  bp->curr_allocated = 0;
-  bp->lcontext = lcontext;
-}
-
-/* Auxiliary function: Append a byte to bp->curr.  */
-static inline void
-mixed_string_buffer_append_byte (struct mixed_string_buffer *bp, unsigned char c)
-{
-  if (bp->curr_buflen == bp->curr_allocated)
-    {
-      bp->curr_allocated = 2 * bp->curr_allocated + 10;
-      bp->curr_buffer = xrealloc (bp->curr_buffer, bp->curr_allocated);
-    }
-  bp->curr_buffer[bp->curr_buflen++] = c;
-}
-
-/* Auxiliary function: Ensure count more bytes are available in bp->utf8.  */
-static inline void
-mixed_string_buffer_append_unicode_grow (struct mixed_string_buffer *bp, size_t count)
-{
-  if (bp->utf8_buflen + count > bp->utf8_allocated)
-    {
-      size_t new_allocated = 2 * bp->utf8_allocated + 10;
-      if (new_allocated < bp->utf8_buflen + count)
-        new_allocated = bp->utf8_buflen + count;
-      bp->utf8_allocated = new_allocated;
-      bp->utf8_buffer = xrealloc (bp->utf8_buffer, new_allocated);
-    }
-}
-
-/* Auxiliary function: Append a Unicode character to bp->utf8.
-   uc must be < 0x110000.  */
-static inline void
-mixed_string_buffer_append_unicode (struct mixed_string_buffer *bp, ucs4_t uc)
-{
-  unsigned char utf8buf[6];
-  int count = u8_uctomb (utf8buf, uc, 6);
-
-  if (count < 0)
-    /* The caller should have ensured that uc is not out-of-range.  */
-    abort ();
-
-  mixed_string_buffer_append_unicode_grow (bp, count);
-  memcpy (bp->utf8_buffer + bp->utf8_buflen, utf8buf, count);
-  bp->utf8_buflen += count;
-}
-
-/* Auxiliary function: Flush bp->utf16_surr into bp->utf8_buffer.  */
-static inline void
-mixed_string_buffer_flush_utf16_surr (struct mixed_string_buffer *bp)
-{
-  if (bp->utf16_surr != 0)
-    {
-      /* A half surrogate is invalid, therefore use U+FFFD instead.  */
-      mixed_string_buffer_append_unicode (bp, 0xfffd);
-      bp->utf16_surr = 0;
-    }
-}
-
-/* Auxiliary function: Flush bp->curr_buffer into bp->utf8_buffer.  */
-static inline void
-mixed_string_buffer_flush_curr_buffer (struct mixed_string_buffer *bp, int lineno)
-{
-  if (bp->curr_buflen > 0)
-    {
-      char *curr;
-      size_t count;
-
-      mixed_string_buffer_append_byte (bp, '\0');
-
-      /* Convert from the source encoding to UTF-8.  */
-      curr = from_current_source_encoding (bp->curr_buffer, bp->lcontext,
-                                           logical_file_name, lineno);
-
-      /* Append it to bp->utf8_buffer.  */
-      count = strlen (curr);
-      mixed_string_buffer_append_unicode_grow (bp, count);
-      memcpy (bp->utf8_buffer + bp->utf8_buflen, curr, count);
-      bp->utf8_buflen += count;
-
-      if (curr != bp->curr_buffer)
-        free (curr);
-      bp->curr_buflen = 0;
-    }
-}
-
-/* Append a character or Unicode character to a 'struct mixed_string_buffer'.  */
-static void
-mixed_string_buffer_append (struct mixed_string_buffer *bp, int c)
-{
-  if (IS_UNICODE (c))
-    {
-      /* Append a Unicode character.  */
-
-      /* Switch from multibyte character mode to Unicode character mode.  */
-      mixed_string_buffer_flush_curr_buffer (bp, line_number);
-
-      /* Test whether this character and the previous one form a Unicode
-         surrogate character pair.  */
-      if (bp->utf16_surr != 0
-          && (c >= UNICODE (0xdc00) && c < UNICODE (0xe000)))
-        {
-          unsigned short utf16buf[2];
-          ucs4_t uc;
-
-          utf16buf[0] = bp->utf16_surr;
-          utf16buf[1] = UNICODE_VALUE (c);
-          if (u16_mbtouc (&uc, utf16buf, 2) != 2)
-            abort ();
-
-          mixed_string_buffer_append_unicode (bp, uc);
-          bp->utf16_surr = 0;
-        }
-      else
-        {
-          mixed_string_buffer_flush_utf16_surr (bp);
-
-          if (c >= UNICODE (0xd800) && c < UNICODE (0xdc00))
-            bp->utf16_surr = UNICODE_VALUE (c);
-          else if (c >= UNICODE (0xdc00) && c < UNICODE (0xe000))
-            {
-              /* A half surrogate is invalid, therefore use U+FFFD instead.  */
-              mixed_string_buffer_append_unicode (bp, 0xfffd);
-            }
-          else
-            mixed_string_buffer_append_unicode (bp, UNICODE_VALUE (c));
-        }
-    }
-  else
-    {
-      /* Append a single byte.  */
-
-      /* Switch from Unicode character mode to multibyte character mode.  */
-      mixed_string_buffer_flush_utf16_surr (bp);
-
-      /* When a newline is seen, convert the accumulated multibyte sequence.
-         This ensures a correct line number in the error message in case of
-         a conversion error.  The "- 1" is to account for the newline.  */
-      if (c == '\n')
-        mixed_string_buffer_flush_curr_buffer (bp, line_number - 1);
-
-      mixed_string_buffer_append_byte (bp, (unsigned char) c);
-    }
-}
-
-/* Return the string buffer's contents.  */
-static char *
-mixed_string_buffer_result (struct mixed_string_buffer *bp)
-{
-  /* Flush all into bp->utf8_buffer.  */
-  mixed_string_buffer_flush_utf16_surr (bp);
-  mixed_string_buffer_flush_curr_buffer (bp, line_number);
-  /* NUL-terminate it.  */
-  mixed_string_buffer_append_unicode_grow (bp, 1);
-  bp->utf8_buffer[bp->utf8_buflen] = '\0';
-  /* Return it.  */
-  return bp->utf8_buffer;
-}
-
-/* Free the memory pointed to by a 'struct mixed_string_buffer'.  */
-static inline void
-free_mixed_string_buffer (struct mixed_string_buffer *bp)
-{
-  free (bp->utf8_buffer);
-  free (bp->curr_buffer);
-}
-
 
 /* ========================== Reading of tokens.  ========================== */
 
@@ -1045,7 +809,8 @@ typedef struct token_ty token_ty;
 struct token_ty
 {
   token_type_ty type;
-  char *string;         /* for token_type_string, token_type_symbol */
+  char *string;                         /* for token_type_symbol */
+  mixed_string_ty *mixed_string;        /* for token_type_string */
   refcounted_string_list_ty *comment;   /* for token_type_string */
   int line_number;
 };
@@ -1054,10 +819,13 @@ struct token_ty
 static inline void
 free_token (token_ty *tp)
 {
-  if (tp->type == token_type_string || tp->type == token_type_symbol)
+  if (tp->type == token_type_symbol)
     free (tp->string);
   if (tp->type == token_type_string)
-    drop_reference (tp->comment);
+    {
+      mixed_string_free (tp->mixed_string);
+      drop_reference (tp->comment);
+    }
 }
 
 
@@ -1460,7 +1228,7 @@ phase5_get (token_ty *tp)
                 return;
               }
           }
-          /* FALLTHROUGH */
+          FALLTHROUGH;
         case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
         case 'G': case 'H': case 'I': case 'J': case 'K': case 'L':
         case 'M': case 'N': case 'O': case 'P': case 'Q':
@@ -1526,7 +1294,6 @@ phase5_get (token_ty *tp)
 
         /* Strings.  */
           {
-            struct mixed_string_buffer literal;
             int quote_char;
             bool interpret_ansic;
             bool interpret_unicode;
@@ -1597,27 +1364,38 @@ phase5_get (token_ty *tp)
                   phase2_ungetc (c1);
               }
               backslash_counter = 0;
-              /* Start accumulating the string.  */
-              init_mixed_string_buffer (&literal, lc_string);
-              for (;;)
-                {
-                  int uc = phase7_getuc (quote_char, triple, interpret_ansic,
-                                         interpret_unicode, &backslash_counter);
+              {
+                struct mixed_string_buffer msb;
 
-                  if (uc == P7_EOF || uc == P7_STRING_END)
-                    break;
+                /* Start accumulating the string.  */
+                mixed_string_buffer_init (&msb, lexical_context,
+                                          logical_file_name, line_number);
+                for (;;)
+                  {
+                    int uc = phase7_getuc (quote_char, triple, interpret_ansic,
+                                           interpret_unicode, &backslash_counter);
 
-                  if (IS_UNICODE (uc))
-                    assert (UNICODE_VALUE (uc) >= 0
-                            && UNICODE_VALUE (uc) < 0x110000);
+                    /* Keep line_number in sync.  */
+                    msb.line_number = line_number;
 
-                  mixed_string_buffer_append (&literal, uc);
-                }
-              tp->string = xstrdup (mixed_string_buffer_result (&literal));
-              free_mixed_string_buffer (&literal);
-              tp->comment = add_reference (savable_comment);
-              lexical_context = lc_outside;
-              tp->type = token_type_string;
+                    if (uc == P7_EOF || uc == P7_STRING_END)
+                      break;
+
+                    if (IS_UNICODE (uc))
+                      {
+                        assert (UNICODE_VALUE (uc) >= 0
+                                && UNICODE_VALUE (uc) < 0x110000);
+                        mixed_string_buffer_append_unicode (&msb,
+                                                            UNICODE_VALUE (uc));
+                      }
+                    else
+                      mixed_string_buffer_append_char (&msb, uc);
+                  }
+                tp->mixed_string = mixed_string_buffer_result (&msb);
+                tp->comment = add_reference (savable_comment);
+                lexical_context = lc_outside;
+                tp->type = token_type_string;
+              }
               return;
           }
 
@@ -1684,20 +1462,19 @@ x_python_lex (token_ty *tp)
   phase5_get (tp);
   if (tp->type == token_type_string)
     {
-      char *sum = tp->string;
-      size_t sum_len = strlen (sum);
+      mixed_string_ty *sum = tp->mixed_string;
 
       for (;;)
         {
-          token_ty token2, *tp2 = NULL;
+          token_ty token2;
+          token_ty token3;
+          token_ty *tp2 = NULL;
 
           phase5_get (&token2);
           switch (token2.type)
             {
             case token_type_plus:
               {
-                token_ty token3;
-
                 phase5_get (&token3);
                 if (token3.type == token_type_string)
                   {
@@ -1717,12 +1494,7 @@ x_python_lex (token_ty *tp)
 
           if (tp2)
             {
-              char *addend = tp2->string;
-              size_t addend_len = strlen (addend);
-
-              sum = (char *) xrealloc (sum, sum_len + addend_len + 1);
-              memcpy (sum + sum_len, addend, addend_len + 1);
-              sum_len += addend_len;
+              sum = mixed_string_concat_free1 (sum, tp2->mixed_string);
 
               free_token (tp2);
               continue;
@@ -1730,7 +1502,7 @@ x_python_lex (token_ty *tp)
           phase5_unget (&token2);
           break;
         }
-      tp->string = sum;
+      tp->mixed_string = sum;
     }
 }
 
@@ -1740,6 +1512,14 @@ x_python_lex (token_ty *tp)
 
 /* Context lookup table.  */
 static flag_context_list_table_ty *flag_context_list_table;
+
+
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depths.  */
+static int paren_nesting_depth;
+static int bracket_nesting_depth;
 
 
 /* The file is broken into tokens.  Scan the token stream, looking for
@@ -1816,16 +1596,21 @@ extract_balanced (message_list_ty *mlp,
           continue;
 
         case token_type_lparen:
+          if (++paren_nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open parentheses"),
+                     logical_file_name, line_number);
+            }
           if (extract_balanced (mlp, token_type_rparen,
                                 inner_context, next_context_iter,
                                 arglist_parser_alloc (mlp,
                                                       state ? next_shapes : NULL)))
             {
-              xgettext_current_source_encoding = po_charset_utf8;
               arglist_parser_done (argparser, arg);
-              xgettext_current_source_encoding = xgettext_current_file_source_encoding;
               return true;
             }
+          paren_nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -1833,9 +1618,7 @@ extract_balanced (message_list_ty *mlp,
         case token_type_rparen:
           if (delim == token_type_rparen || delim == token_type_eof)
             {
-              xgettext_current_source_encoding = po_charset_utf8;
               arglist_parser_done (argparser, arg);
-              xgettext_current_source_encoding = xgettext_current_file_source_encoding;
               return false;
             }
           next_context_iter = null_context_list_iterator;
@@ -1853,15 +1636,20 @@ extract_balanced (message_list_ty *mlp,
           continue;
 
         case token_type_lbracket:
+          if (++bracket_nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open brackets"),
+                     logical_file_name, line_number);
+            }
           if (extract_balanced (mlp, token_type_rbracket,
                                 null_context, null_context_list_iterator,
                                 arglist_parser_alloc (mlp, NULL)))
             {
-              xgettext_current_source_encoding = po_charset_utf8;
               arglist_parser_done (argparser, arg);
-              xgettext_current_source_encoding = xgettext_current_file_source_encoding;
               return true;
             }
+          bracket_nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -1869,9 +1657,7 @@ extract_balanced (message_list_ty *mlp,
         case token_type_rbracket:
           if (delim == token_type_rbracket || delim == token_type_eof)
             {
-              xgettext_current_source_encoding = po_charset_utf8;
               arglist_parser_done (argparser, arg);
-              xgettext_current_source_encoding = xgettext_current_file_source_encoding;
               return false;
             }
           next_context_iter = null_context_list_iterator;
@@ -1881,19 +1667,23 @@ extract_balanced (message_list_ty *mlp,
         case token_type_string:
           {
             lex_pos_ty pos;
+
             pos.file_name = logical_file_name;
             pos.line_number = token.line_number;
 
-            xgettext_current_source_encoding = po_charset_utf8;
             if (extract_all)
-              remember_a_message (mlp, NULL, token.string, inner_context,
-                                  &pos, NULL, token.comment);
+              {
+                char *string = mixed_string_contents (token.mixed_string);
+                mixed_string_free (token.mixed_string);
+                remember_a_message (mlp, NULL, string, true, false,
+                                    inner_context, &pos,
+                                    NULL, token.comment, true);
+              }
             else
-              arglist_parser_remember (argparser, arg, token.string,
+              arglist_parser_remember (argparser, arg, token.mixed_string,
                                        inner_context,
                                        pos.file_name, pos.line_number,
-                                       token.comment);
-            xgettext_current_source_encoding = xgettext_current_file_source_encoding;
+                                       token.comment, true);
           }
           drop_reference (token.comment);
           next_context_iter = null_context_list_iterator;
@@ -1901,9 +1691,7 @@ extract_balanced (message_list_ty *mlp,
           continue;
 
         case token_type_eof:
-          xgettext_current_source_encoding = po_charset_utf8;
           arglist_parser_done (argparser, arg);
-          xgettext_current_source_encoding = xgettext_current_file_source_encoding;
           return true;
 
         case token_type_plus:
@@ -1932,12 +1720,20 @@ extract_python (FILE *f,
   logical_file_name = xstrdup (logical_filename);
   line_number = 1;
 
+  phase1_pushback_length = 0;
+
   lexical_context = lc_outside;
+
+  phase2_pushback_length = 0;
 
   last_comment_line = -1;
   last_non_comment_line = -1;
 
-  xgettext_current_file_source_encoding = xgettext_global_source_encoding;
+  /* For Python, the default source file encoding is UTF-8.  This is specified
+     in PEP 3120.  */
+  xgettext_current_file_source_encoding =
+   (xgettext_global_source_encoding != NULL ? xgettext_global_source_encoding :
+    po_charset_utf8);
 #if HAVE_ICONV
   xgettext_current_file_source_iconv = xgettext_global_source_iconv;
 #endif
@@ -1951,7 +1747,11 @@ extract_python (FILE *f,
 
   open_pbb = 0;
 
+  phase5_pushback_length = 0;
+
   flag_context_list_table = flag_table;
+  paren_nesting_depth = 0;
+  bracket_nesting_depth = 0;
 
   init_keywords ();
 

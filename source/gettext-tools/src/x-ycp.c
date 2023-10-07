@@ -1,5 +1,5 @@
 /* xgettext YCP backend.
-   Copyright (C) 2001-2003, 2005-2009, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2005-2009, 2011, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -29,9 +29,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "attribute.h"
 #include "message.h"
+#include "rc-str-list.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-arglist-context.h"
+#include "xg-message.h"
 #include "error.h"
+#include "error-progname.h"
 #include "xalloc.h"
 #include "gettext.h"
 
@@ -60,13 +66,7 @@ init_flag_table_ycp ()
 
 /* ======================== Reading of characters.  ======================== */
 
-
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
+/* Position in the current line.  */
 static int char_in_line;
 
 /* The input file stream.  */
@@ -247,7 +247,7 @@ phase2_getc ()
                       savable_comment_add (buffer);
                       break;
                     }
-                  /* FALLTHROUGH */
+                  FALLTHROUGH;
 
                 default:
                   last_was_star = false;
@@ -447,7 +447,7 @@ phase5_get (token_ty *tp)
         case '\n':
           if (last_non_comment_line > last_comment_line)
             savable_comment_reset ();
-          /* FALLTHROUGH */
+          FALLTHROUGH;
         case '\r':
         case '\t':
         case ' ':
@@ -583,9 +583,17 @@ phase5_unget (token_ty *tp)
 /* Concatenate adjacent string literals to form single string literals.
    (See libycp/src/parser.yy, rule 'string' vs. terminal 'STRING'.)  */
 
+static token_ty phase8_pushback[1];
+static int phase8_pushback_length;
+
 static void
 phase8_get (token_ty *tp)
 {
+  if (phase8_pushback_length)
+    {
+      *tp = phase8_pushback[--phase8_pushback_length];
+      return;
+    }
   phase5_get (tp);
   if (tp->type != token_type_string_literal)
     return;
@@ -607,12 +615,31 @@ phase8_get (token_ty *tp)
     }
 }
 
+/* Supports only one pushback token.  */
+static void
+phase8_unget (token_ty *tp)
+{
+  if (tp->type != token_type_eof)
+    {
+      if (phase8_pushback_length == SIZEOF (phase8_pushback))
+        abort ();
+      phase8_pushback[phase8_pushback_length++] = *tp;
+    }
+}
+
 
 /* ========================= Extracting strings.  ========================== */
 
 
 /* Context lookup table.  */
 static flag_context_list_table_ty *flag_context_list_table;
+
+
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depth.  */
+static int nesting_depth;
 
 
 /* The file is broken into tokens.
@@ -665,9 +692,16 @@ extract_parenthesized (message_list_ty *mlp,
       switch (token.type)
         {
         case token_type_i18n:
+          if (++nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open parentheses"),
+                     logical_file_name, line_number);
+            }
           if (extract_parenthesized (mlp, inner_context, next_context_iter,
                                      true))
             return true;
+          nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -682,9 +716,24 @@ extract_parenthesized (message_list_ty *mlp,
               if (plural_state == 0)
                 {
                   /* Seen an msgid.  */
-                  plural_mp = remember_a_message (mlp, NULL, token.string,
-                                                  inner_context, &pos,
-                                                  NULL, token.comment);
+                  token_ty token2;
+
+                  if (in_i18n)
+                    phase8_get (&token2);
+                  else
+                    phase5_get (&token2);
+
+                  plural_mp =
+                    remember_a_message (mlp, NULL, token.string, false,
+                                        token2.type == token_type_comma,
+                                        inner_context, &pos,
+                                        NULL, token.comment, false);
+
+                  if (in_i18n)
+                    phase8_unget (&token2);
+                  else
+                    phase5_unget (&token2);
+
                   plural_state = 1;
                   state = 2;
                 }
@@ -692,9 +741,9 @@ extract_parenthesized (message_list_ty *mlp,
                 {
                   /* Seen an msgid_plural.  */
                   if (plural_mp != NULL)
-                    remember_a_message_plural (plural_mp, token.string,
+                    remember_a_message_plural (plural_mp, token.string, false,
                                                inner_context, &pos,
-                                               token.comment);
+                                               token.comment, false);
                   state = 0;
                 }
               drop_reference (token.comment);
@@ -718,9 +767,16 @@ extract_parenthesized (message_list_ty *mlp,
           continue;
 
         case token_type_lparen:
+          if (++nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open parentheses"),
+                     logical_file_name, line_number);
+            }
           if (extract_parenthesized (mlp, inner_context, next_context_iter,
                                      false))
             return true;
+          nesting_depth--;
           next_context_iter = null_context_list_iterator;
           state = 0;
           continue;
@@ -772,7 +828,12 @@ extract_ycp (FILE *f,
   last_comment_line = -1;
   last_non_comment_line = -1;
 
+  phase2_pushback_length = 0;
+  phase5_pushback_length = 0;
+  phase8_pushback_length = 0;
+
   flag_context_list_table = flag_table;
+  nesting_depth = 0;
 
   /* Eat tokens until eof is seen.  When extract_parenthesized returns
      due to an unbalanced closing parenthesis, just restart it.  */

@@ -1,5 +1,5 @@
 /* Public API for GNU gettext PO files.
-   Copyright (C) 2003-2010 Free Software Foundation, Inc.
+   Copyright (C) 2003-2010, 2014, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2003.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,11 +13,26 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
 #endif
+/* Avoid side effect of gnulib's error.h on 'struct po_error_handler'.  */
+#define _GL_NO_INLINE_ERROR
+
+/* Avoid side effect of config.h on 'struct po_error_handler'.  */
+#include "error.h"
+static void (*orig_error) (int status, int errnum,
+                           const char *format, ...)
+  = error;
+
+static void (*orig_error_at_line) (int status, int errnum,
+                                   const char *filename, unsigned int lineno,
+                                   const char *format, ...)
+  = error_at_line;
+#undef error
+#undef error_at_line
 
 /* Specification.  */
 #include "gettext-po.h"
@@ -35,7 +50,6 @@
 #include "read-po.h"
 #include "write-catalog.h"
 #include "write-po.h"
-#include "error.h"
 #include "xerror.h"
 #include "po-error.h"
 #include "po-xerror.h"
@@ -172,8 +186,8 @@ po_file_read_v2 (const char *filename, po_error_handler_t handler)
   file->domains = NULL;
 
   /* Restore error handler.  */
-  po_error             = error;
-  po_error_at_line     = error_at_line;
+  po_error             = orig_error;
+  po_error_at_line     = orig_error_at_line;
   po_multiline_warning = multiline_warning;
   po_multiline_error   = multiline_error;
   gram_max_allowed_errors = 20;
@@ -258,8 +272,8 @@ po_file_write (po_file_t file, const char *filename, po_error_handler_t handler)
   msgdomain_list_print (file->mdlp, filename, &output_format_po, true, false);
 
   /* Restore error handler.  */
-  po_error             = error;
-  po_error_at_line     = error_at_line;
+  po_error             = orig_error;
+  po_error_at_line     = orig_error_at_line;
   po_multiline_warning = multiline_warning;
   po_multiline_error   = multiline_error;
 
@@ -392,7 +406,6 @@ po_header_set_field (const char *header, const char *field, const char *value)
           {
             const char *oldvalue_start;
             const char *oldvalue_end;
-            size_t oldvalue_len;
             size_t header_part1_len;
             size_t header_part3_len;
             size_t result_len;
@@ -404,7 +417,6 @@ po_header_set_field (const char *header, const char *field, const char *value)
             oldvalue_end = strchr (oldvalue_start, '\n');
             if (oldvalue_end == NULL)
               oldvalue_end = oldvalue_start + strlen (oldvalue_start);
-            oldvalue_len = oldvalue_end - oldvalue_start;
 
             header_part1_len = oldvalue_start - header;
             header_part3_len = header + header_len - oldvalue_end;
@@ -1325,7 +1337,7 @@ po_error_logger (const char *format, ...)
 
   va_start (args, format);
   if (vasprintf (&error_message, format, args) < 0)
-    error (EXIT_FAILURE, 0, _("memory exhausted"));
+    orig_error (EXIT_FAILURE, 0, _("memory exhausted"));
   va_end (args);
   po_error (0, 0, "%s", error_message);
   free (error_message);
@@ -1350,5 +1362,5 @@ po_message_check_format (po_message_t message, po_error_handler_t handler)
                              mp->is_format, mp->range, NULL, po_error_logger);
 
   /* Restore error handler.  */
-  po_error = error;
+  po_error = orig_error;
 }

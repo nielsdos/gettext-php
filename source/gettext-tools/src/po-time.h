@@ -1,5 +1,5 @@
 /* PO/POT file timestamps.
-   Copyright (C) 2001-2003 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,12 +13,14 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _PO_TIME_H
 #define _PO_TIME_H
 
 #include <time.h>
+
+#include "attribute.h"
 
 
 #ifdef __cplusplus
@@ -28,7 +30,8 @@ extern "C" {
 
 /* Return a freshly allocated string containing the given time in the
    format YYYY-MM-DD HH:MM+TZOFF.  */
-extern char *po_strftime (const time_t *tp);
+extern char *po_strftime (const time_t *tp)
+       ATTRIBUTE_MALLOC;
 
 
 #ifdef __cplusplus

@@ -1,11 +1,8 @@
 #! /bin/sh
+. "${srcdir=.}/init.sh"; path_prepend_ . ../src
 
 # Test checking of Emacs Lisp format strings.
 
-tmpfiles=""
-trap 'rm -fr $tmpfiles' 1 2 3 15
-
-tmpfiles="$tmpfiles f-el-2.data"
 cat <<\EOF > f-el-2.data
 # Valid: %% doesn't count
 msgid  "abc%%def"
@@ -261,7 +258,6 @@ while read comment; do
   read msgid_line
   read msgstr_line
   n=`expr $n + 1`
-  tmpfiles="$tmpfiles f-el-2-$n.po f-el-2-$n.mo"
   cat <<EOF > f-el-2-$n.po
 #, elisp-format
 ${msgid_line}
@@ -285,11 +281,9 @@ EOF
   if test -n "$fail"; then
     echo "Format string checking error:" 1>&2
     cat f-el-2-$n.po 1>&2
-    exit 1
+    Exit 1
   fi
   rm -f f-el-2-$n.po f-el-2-$n.mo
 done < f-el-2.data
 
-rm -fr $tmpfiles
-
-exit 0
+Exit 0

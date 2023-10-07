@@ -1,10 +1,39 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * Author: Daniel Veillard
+ */
+
 /*
  * Summary: the XML document serializer
  * Description: API to save document or subtree of document
- *
- * Copy: See Copyright for the status of this software.
- *
- * Author: Daniel Veillard
  */
 
 #ifndef __XML_XMLSAVE_H__
@@ -30,7 +59,11 @@ typedef enum {
     XML_SAVE_FORMAT     = 1<<0,	/* format save output */
     XML_SAVE_NO_DECL    = 1<<1,	/* drop the xml declaration */
     XML_SAVE_NO_EMPTY	= 1<<2, /* no empty tags */
-    XML_SAVE_NO_XHTML	= 1<<3  /* disable XHTML1 specific rules */
+    XML_SAVE_NO_XHTML	= 1<<3, /* disable XHTML1 specific rules */
+    XML_SAVE_XHTML	= 1<<4, /* force XHTML1 specific rules */
+    XML_SAVE_AS_XML     = 1<<5, /* force XML serialization on HTML doc */
+    XML_SAVE_AS_HTML    = 1<<6, /* force HTML serialization on XML doc */
+    XML_SAVE_WSNONSIG   = 1<<7  /* format with non-significant whitespace */
 } xmlSaveOption;
 
 

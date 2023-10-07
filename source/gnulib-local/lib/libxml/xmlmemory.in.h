@@ -1,13 +1,41 @@
-/*
- * Summary: interface for the memory allocator
- * Description: provides interfaces for the memory allocator,
- *              including debugging capabilities.
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
  *
- * Copy: See Copyright for the status of this software.
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  *
  * Author: Daniel Veillard
  */
 
+/*
+ * Summary: interface for the memory allocator
+ * Description: provides interfaces for the memory allocator,
+ *              including debugging capabilities.
+ */
 
 #ifndef __DEBUG_MEMORY_ALLOC__
 #define __DEBUG_MEMORY_ALLOC__
@@ -20,7 +48,7 @@
  *
  * DEBUG_MEMORY replaces the allocator with a collect and debug
  * shell to the libc allocator.
- * DEBUG_MEMORY should only be activated when debugging 
+ * DEBUG_MEMORY should only be activated when debugging
  * libxml i.e. if libxml has been configured with --with-debug-mem too.
  */
 /* #define DEBUG_MEMORY_FREED */
@@ -35,7 +63,7 @@
 /**
  * DEBUG_MEMORY_LOCATION:
  *
- * DEBUG_MEMORY_LOCATION should be activated only when debugging 
+ * DEBUG_MEMORY_LOCATION should be activated only when debugging
  * libxml i.e. if libxml has been configured with --with-debug-mem too.
  */
 #ifdef DEBUG_MEMORY_LOCATION
@@ -63,7 +91,7 @@ typedef void (XMLCALL *xmlFreeFunc)(void *mem);
  *
  * Returns a pointer to the newly allocated block or NULL in case of error.
  */
-typedef void *(XMLCALL *xmlMallocFunc)(size_t size);
+typedef void *(LIBXML_ATTR_ALLOC_SIZE(1) XMLCALL *xmlMallocFunc)(size_t size);
 
 /**
  * xmlReallocFunc:
@@ -88,11 +116,11 @@ typedef char *(XMLCALL *xmlStrdupFunc)(const char *str);
 
 /*
  * The 4 interfaces used for all memory handling within libxml.
-LIBXML_DLL_IMPORT extern xmlFreeFunc xmlFree;
-LIBXML_DLL_IMPORT extern xmlMallocFunc xmlMalloc;
-LIBXML_DLL_IMPORT extern xmlMallocFunc xmlMallocAtomic;
-LIBXML_DLL_IMPORT extern xmlReallocFunc xmlRealloc;
-LIBXML_DLL_IMPORT extern xmlStrdupFunc xmlMemStrdup;
+LIBXML_DLL_IMPORT xmlFreeFunc xmlFree;
+LIBXML_DLL_IMPORT xmlMallocFunc xmlMalloc;
+LIBXML_DLL_IMPORT xmlMallocFunc xmlMallocAtomic;
+LIBXML_DLL_IMPORT xmlReallocFunc xmlRealloc;
+LIBXML_DLL_IMPORT xmlStrdupFunc xmlMemStrdup;
  */
 
 /*
@@ -105,18 +133,18 @@ XMLPUBFUN int XMLCALL
 			 xmlMallocFunc mallocFunc,
 			 xmlReallocFunc reallocFunc,
 			 xmlStrdupFunc strdupFunc);
-XMLPUBFUN int XMLCALL     
+XMLPUBFUN int XMLCALL
 	xmlMemGet	(xmlFreeFunc *freeFunc,
 			 xmlMallocFunc *mallocFunc,
 			 xmlReallocFunc *reallocFunc,
 			 xmlStrdupFunc *strdupFunc);
-XMLPUBFUN int XMLCALL     
+XMLPUBFUN int XMLCALL
 	xmlGcMemSetup	(xmlFreeFunc freeFunc,
 			 xmlMallocFunc mallocFunc,
 			 xmlMallocFunc mallocAtomicFunc,
 			 xmlReallocFunc reallocFunc,
 			 xmlStrdupFunc strdupFunc);
-XMLPUBFUN int XMLCALL     
+XMLPUBFUN int XMLCALL
 	xmlGcMemGet	(xmlFreeFunc *freeFunc,
 			 xmlMallocFunc *mallocFunc,
 			 xmlMallocFunc *mallocAtomicFunc,
@@ -126,42 +154,44 @@ XMLPUBFUN int XMLCALL
 /*
  * Initialization of the memory layer.
  */
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlInitMemory	(void);
 
-/* 
+/*
  * Cleanup of the memory layer.
  */
-XMLPUBFUN void XMLCALL                
+XMLPUBFUN void XMLCALL
                 xmlCleanupMemory        (void);
 /*
  * These are specific to the XML debug memory wrapper.
  */
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlMemUsed	(void);
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlMemBlocks	(void);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlMemDisplay	(FILE *fp);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
+	xmlMemDisplayLast(FILE *fp, long nbBytes);
+XMLPUBFUN void XMLCALL
 	xmlMemShow	(FILE *fp, int nr);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlMemoryDump	(void);
-XMLPUBFUN void * XMLCALL	
-	xmlMemMalloc	(size_t size);
-XMLPUBFUN void * XMLCALL	
+XMLPUBFUN void * XMLCALL
+	xmlMemMalloc	(size_t size) LIBXML_ATTR_ALLOC_SIZE(1);
+XMLPUBFUN void * XMLCALL
 	xmlMemRealloc	(void *ptr,size_t size);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlMemFree	(void *ptr);
-XMLPUBFUN char * XMLCALL	
+XMLPUBFUN char * XMLCALL
 	xmlMemoryStrdup	(const char *str);
-XMLPUBFUN void * XMLCALL  
-	xmlMallocLoc	(size_t size, const char *file, int line);
-XMLPUBFUN void * XMLCALL	
+XMLPUBFUN void * XMLCALL
+	xmlMallocLoc	(size_t size, const char *file, int line) LIBXML_ATTR_ALLOC_SIZE(1);
+XMLPUBFUN void * XMLCALL
 	xmlReallocLoc	(void *ptr, size_t size, const char *file, int line);
-XMLPUBFUN void * XMLCALL	
-	xmlMallocAtomicLoc (size_t size, const char *file, int line);
-XMLPUBFUN char * XMLCALL	
+XMLPUBFUN void * XMLCALL
+	xmlMallocAtomicLoc (size_t size, const char *file, int line) LIBXML_ATTR_ALLOC_SIZE(1);
+XMLPUBFUN char * XMLCALL
 	xmlMemStrdupLoc	(const char *str, const char *file, int line);
 
 

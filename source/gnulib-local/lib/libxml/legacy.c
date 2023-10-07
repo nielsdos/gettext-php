@@ -1,10 +1,39 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * daniel@veillard.com
+ */
+
 /*
  * legacy.c: set of deprecated routines, not to be used anymore but
  *           kept purely for ABI compatibility
- *
- * See Copyright for the status of this software.
- *
- * daniel@veillard.com
  */
 
 #define IN_LIBXML
@@ -393,7 +422,7 @@ xmlSetFeature(xmlParserCtxtPtr ctxt, const char *name, void *value)
  * @end:  an end marker xmlChar, 0 if none
  * @end2:  an end marker xmlChar, 0 if none
  * @end3:  an end marker xmlChar, 0 if none
- * 
+ *
  * This function is deprecated, we now always process entities content
  * through xmlStringDecodeEntities
  *
@@ -456,7 +485,7 @@ xmlNamespaceParseNCName(xmlParserCtxtPtr ctxt ATTRIBUTE_UNUSED)
 /**
  * xmlNamespaceParseQName:
  * @ctxt:  an XML parser context
- * @prefix:  a xmlChar ** 
+ * @prefix:  a xmlChar **
  *
  * TODO: this seems not in use anymore, the namespace handling is done on
  *       top of the SAX interfaces, i.e. not on raw input.
@@ -603,7 +632,7 @@ xmlScanName(xmlParserCtxtPtr ctxt ATTRIBUTE_UNUSED)
 /**
  * xmlParserHandleReference:
  * @ctxt:  the parser context
- * 
+ *
  * TODO: Remove, now deprecated ... the test is done directly in the
  *       content parsing
  * routines.
@@ -615,7 +644,7 @@ xmlScanName(xmlParserCtxtPtr ctxt ATTRIBUTE_UNUSED)
  * [ WFC: Entity Declared ]
  * the Name given in the entity reference must match that in an entity
  * declaration, except that well-formed documents need not declare any
- * of the following entities: amp, lt, gt, apos, quot. 
+ * of the following entities: amp, lt, gt, apos, quot.
  *
  * [ WFC: Parsed Entity ]
  * An entity reference must not contain the name of an unparsed entity
@@ -624,7 +653,7 @@ xmlScanName(xmlParserCtxtPtr ctxt ATTRIBUTE_UNUSED)
  *                  '&#x' [0-9a-fA-F]+ ';'
  *
  * A PEReference may have been detected in the current input stream
- * the handling is done accordingly to 
+ * the handling is done accordingly to
  *      http://www.w3.org/TR/REC-xml#entproc
  */
 void
@@ -693,7 +722,7 @@ xmlNewGlobalNs(xmlDocPtr doc ATTRIBUTE_UNUSED,
 /**
  * xmlUpgradeOldNs:
  * @doc:  a document pointer
- * 
+ *
  * Upgrade old style Namespaces (PI) and move them to the root of the document.
  * DEPRECATED
  */
@@ -719,7 +748,7 @@ xmlUpgradeOldNs(xmlDocPtr doc ATTRIBUTE_UNUSED)
  *
  * People must migrate their code to xmlEncodeEntitiesReentrant !
  * This routine will issue a warning when encountered.
- * 
+ *
  * Returns NULL
  */
 const xmlChar *
@@ -740,7 +769,7 @@ xmlEncodeEntities(xmlDocPtr doc ATTRIBUTE_UNUSED,
 
 /************************************************************************
  *									*
- *		Old set of SAXv1 functions 				*
+ *		Old set of SAXv1 functions				*
  *									*
  ************************************************************************/
 static int deprecated_v1_msg = 0;
@@ -961,8 +990,8 @@ getParameterEntity(void *ctx, const xmlChar * name)
 /**
  * entityDecl:
  * @ctx: the user data (XML parser context)
- * @name:  the entity name 
- * @type:  the entity type 
+ * @name:  the entity name
+ * @type:  the entity type
  * @publicId: The public ID of the entity
  * @systemId: The system ID of the entity
  * @content: the entity value (without processing).
@@ -983,8 +1012,8 @@ entityDecl(void *ctx, const xmlChar * name, int type,
  * attributeDecl:
  * @ctx: the user data (XML parser context)
  * @elem:  the name of the element
- * @fullname:  the attribute name 
- * @type:  the attribute type 
+ * @fullname:  the attribute name
+ * @type:  the attribute type
  * @def:  the type of default value
  * @defaultValue: the attribute default value
  * @tree:  the tree of enumerated value set
@@ -1005,8 +1034,8 @@ attributeDecl(void *ctx, const xmlChar * elem, const xmlChar * fullname,
 /**
  * elementDecl:
  * @ctx: the user data (XML parser context)
- * @name:  the element name 
- * @type:  the element type 
+ * @name:  the element name
+ * @type:  the element type
  * @content: the element value tree
  *
  * An element definition has been parsed
@@ -1151,7 +1180,7 @@ void
 endElement(void *ctx, const xmlChar * name ATTRIBUTE_UNUSED)
 {
     DEPRECATED("endElement")
-        xmlSAX2EndElement(ctx, name);
+    xmlSAX2EndElement(ctx, name);
 }
 
 /**
@@ -1159,7 +1188,7 @@ endElement(void *ctx, const xmlChar * name ATTRIBUTE_UNUSED)
  * @ctx: the user data (XML parser context)
  * @name:  The entity name
  *
- * called when an entity reference is detected. 
+ * called when an entity reference is detected.
  * DEPRECATED: use xmlSAX2Reference()
  */
 void

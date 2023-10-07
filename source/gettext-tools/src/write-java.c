@@ -1,5 +1,5 @@
 /* Writing Java ResourceBundles.
-   Copyright (C) 2001-2003, 2005-2010 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2005-2010, 2014, 2016, 2018-2020, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -53,14 +53,17 @@
 # define S_IXUSR 00100
 #endif
 
+#include "attribute.h"
 #include "c-ctype.h"
 #include "error.h"
 #include "xerror.h"
 #include "xvasprintf.h"
+#include "verify.h"
 #include "javacomp.h"
 #include "message.h"
 #include "msgfmt.h"
 #include "msgl-iconv.h"
+#include "msgl-header.h"
 #include "plural-exp.h"
 #include "po-charset.h"
 #include "xalloc.h"
@@ -150,7 +153,7 @@ msgid_hashcode (const char *msgctxt, const char *msgid)
       char *combined;
       unsigned int result;
 
-      combined = (char *) xmalloca (combined_len);
+      combined = (char *) xmalloca (combined_len + 1);
       memcpy (combined, msgctxt, msgctxt_len);
       combined[msgctxt_len] = MSGCTXT_SEPARATOR;
       memcpy (combined + msgctxt_len + 1, msgid, msgid_len + 1);
@@ -416,7 +419,7 @@ write_java_msgid (FILE *stream, message_ty *mp)
       size_t combined_len = msgctxt_len + 1 + msgid_len;
       char *combined;
 
-      combined = (char *) xmalloca (combined_len);
+      combined = (char *) xmalloca (combined_len + 1);
       memcpy (combined, msgctxt, msgctxt_len);
       combined[msgctxt_len] = MSGCTXT_SEPARATOR;
       memcpy (combined + msgctxt_len + 1, msgid, msgid_len + 1);
@@ -466,7 +469,7 @@ static void
 write_lookup_code (FILE *stream, unsigned int hashsize, bool collisions)
 {
   fprintf (stream, "    int hash_val = msgid.hashCode() & 0x7fffffff;\n");
-  fprintf (stream, "    int idx = (hash_val %% %d) << 1;\n", hashsize);
+  fprintf (stream, "    int idx = (hash_val %% %u) << 1;\n", hashsize);
   if (collisions)
     {
       fprintf (stream, "    {\n");
@@ -476,12 +479,12 @@ write_lookup_code (FILE *stream, unsigned int hashsize, bool collisions)
       fprintf (stream, "      if (msgid.equals(found))\n");
       fprintf (stream, "        return table[idx + 1];\n");
       fprintf (stream, "    }\n");
-      fprintf (stream, "    int incr = ((hash_val %% %d) + 1) << 1;\n",
+      fprintf (stream, "    int incr = ((hash_val %% %u) + 1) << 1;\n",
                hashsize - 2);
       fprintf (stream, "    for (;;) {\n");
       fprintf (stream, "      idx += incr;\n");
-      fprintf (stream, "      if (idx >= %d)\n", 2 * hashsize);
-      fprintf (stream, "        idx -= %d;\n", 2 * hashsize);
+      fprintf (stream, "      if (idx >= %u)\n", 2 * hashsize);
+      fprintf (stream, "        idx -= %u;\n", 2 * hashsize);
       fprintf (stream, "      java.lang.Object found = table[idx];\n");
       fprintf (stream, "      if (found == null)\n");
       fprintf (stream, "        return null;\n");
@@ -623,7 +626,7 @@ write_java_expression (FILE *stream, const struct expression *exp, bool as_boole
               fprintf (stream, ")");
               return;
             }
-          /*FALLTHROUGH*/
+          FALLTHROUGH;
         case var:
         case mult:
         case divide:
@@ -745,10 +748,10 @@ write_java2_init_statements (FILE *stream, message_list_ty *mlp,
     {
       const struct table_item *ti = &table_items[j];
 
-      fprintf (stream, "    t[%d] = ", 2 * ti->index);
+      fprintf (stream, "    t[%u] = ", 2 * ti->index);
       write_java_msgid (stream, ti->mp);
       fprintf (stream, ";\n");
-      fprintf (stream, "    t[%d] = ", 2 * ti->index + 1);
+      fprintf (stream, "    t[%u] = ", 2 * ti->index + 1);
       write_java_msgstr (stream, ti->mp);
       fprintf (stream, ";\n");
     }
@@ -834,7 +837,7 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
               }
           }
         fprintf (stream, "  static {\n");
-        fprintf (stream, "    %s[] t = new %s[%d];\n", table_eltype,
+        fprintf (stream, "    %s[] t = new %s[%u];\n", table_eltype,
                  table_eltype, 2 * hashsize);
         if (mlp->nitems > max_items_per_method)
           {
@@ -902,14 +905,14 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
       fprintf (stream, "    return\n");
       fprintf (stream, "      new java.util.Enumeration() {\n");
       fprintf (stream, "        private int idx = 0;\n");
-      fprintf (stream, "        { while (idx < %d && table[idx] == null) idx += 2; }\n",
+      fprintf (stream, "        { while (idx < %u && table[idx] == null) idx += 2; }\n",
                2 * hashsize);
       fprintf (stream, "        public boolean hasMoreElements () {\n");
-      fprintf (stream, "          return (idx < %d);\n", 2 * hashsize);
+      fprintf (stream, "          return (idx < %u);\n", 2 * hashsize);
       fprintf (stream, "        }\n");
       fprintf (stream, "        public java.lang.Object nextElement () {\n");
       fprintf (stream, "          java.lang.Object key = table[idx];\n");
-      fprintf (stream, "          do idx += 2; while (idx < %d && table[idx] == null);\n",
+      fprintf (stream, "          do idx += 2; while (idx < %u && table[idx] == null);\n",
                2 * hashsize);
       fprintf (stream, "          return key;\n");
       fprintf (stream, "        }\n");
@@ -921,7 +924,7 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
       /* Java 1.1.x uses a different hash function.  If compatibility with
          this Java version is required, the hash table must be built at run time,
          not at compile time.  */
-      fprintf (stream, "  private static final java.util.Hashtable table;\n");
+      fprintf (stream, "  private static final java.util.Hashtable<java.lang.String,java.lang.Object> table;\n");
       {
         /* With the Sun javac compiler, each 'put' call takes 9 to 11 bytes
            of bytecode, therefore for each message, up to 11 bytes are needed.
@@ -942,7 +945,7 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
                  start_j < mlp->nitems;
                  k++, start_j = end_j, end_j = start_j + max_items_per_method)
               {
-                fprintf (stream, "  static void clinit_part_%u (java.util.Hashtable t) {\n",
+                fprintf (stream, "  static void clinit_part_%u (java.util.Hashtable<java.lang.String,java.lang.Object> t) {\n",
                          k);
                 write_java1_init_statements (stream, mlp,
                                              start_j, MIN (end_j, mlp->nitems));
@@ -950,7 +953,7 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
               }
           }
         fprintf (stream, "  static {\n");
-        fprintf (stream, "    java.util.Hashtable t = new java.util.Hashtable();\n");
+        fprintf (stream, "    java.util.Hashtable<java.lang.String,java.lang.Object> t = new java.util.Hashtable<java.lang.String,java.lang.Object>();\n");
         if (mlp->nitems > max_items_per_method)
           {
             unsigned int k;
@@ -970,8 +973,8 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
       /* Emit the msgid_plural strings.  Only used by msgunfmt.  */
       if (plurals)
         {
-          fprintf (stream, "  public static final java.util.Hashtable get_msgid_plural_table () {\n");
-          fprintf (stream, "    java.util.Hashtable p = new java.util.Hashtable();\n");
+          fprintf (stream, "  public static final java.util.Hashtable<java.lang.String,java.lang.Object> get_msgid_plural_table () {\n");
+          fprintf (stream, "    java.util.Hashtable<java.lang.String,java.lang.Object> p = new java.util.Hashtable<java.lang.String,java.lang.Object>();\n");
           for (j = 0; j < mlp->nitems; j++)
             if (mlp->item[j]->msgid_plural != NULL)
               {
@@ -1008,7 +1011,7 @@ write_java_code (FILE *stream, const char *class_name, message_list_ty *mlp,
 
       /* Emit the getKeys function.  It is declared abstract in
          ResourceBundle.  */
-      fprintf (stream, "  public java.util.Enumeration getKeys () {\n");
+      fprintf (stream, "  public java.util.Enumeration<java.lang.String> getKeys () {\n");
       fprintf (stream, "    return table.keys();\n");
       fprintf (stream, "  }\n");
     }
@@ -1044,7 +1047,8 @@ int
 msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
                       const char *resource_name, const char *locale_name,
                       const char *directory,
-                      bool assume_java2)
+                      bool assume_java2,
+                      bool output_source)
 {
   int retval;
   struct temp_dir *tmpdir;
@@ -1054,6 +1058,7 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
   char *java_file_name;
   FILE *java_file;
   const char *java_sources[1];
+  const char *source_dir_name;
 
   /* If no entry for this resource/domain, don't even create the file.  */
   if (mlp->nitems == 0)
@@ -1064,10 +1069,23 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
   /* Convert the messages to Unicode.  */
   iconv_message_list (mlp, canon_encoding, po_charset_utf8, NULL);
 
-  /* Create a temporary directory where we can put the Java file.  */
-  tmpdir = create_temp_dir ("msg", NULL, false);
-  if (tmpdir == NULL)
-    goto quit1;
+  /* Support for "reproducible builds": Delete information that may vary
+     between builds in the same conditions.  */
+  message_list_delete_header_field (mlp, "POT-Creation-Date:");
+
+  if (output_source)
+    {
+      tmpdir = NULL;
+      source_dir_name = directory;
+    }
+  else
+    {
+      /* Create a temporary directory where we can put the Java file.  */
+      tmpdir = create_temp_dir ("msg", NULL, false);
+      if (tmpdir == NULL)
+        goto quit1;
+      source_dir_name = tmpdir->dir_name;
+    }
 
   /* Assign a default value to the resource name.  */
   if (resource_name == NULL)
@@ -1082,7 +1100,10 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
     }
 
   if (locale_name != NULL)
-    class_name = xasprintf ("%s_%s", resource_name, locale_name);
+    {
+      class_name = xasprintf ("%s_%s", resource_name, locale_name);
+      assume (class_name != NULL);
+    }
   else
     class_name = xstrdup (resource_name);
 
@@ -1092,7 +1113,7 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
     const char *last_dir;
     int i;
 
-    last_dir = tmpdir->dir_name;
+    last_dir = source_dir_name;
     p = resource_name;
     for (i = 0; i < ndots; i++)
       {
@@ -1117,6 +1138,40 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
       java_file_name = xconcatenated_filename (last_dir, p, ".java");
   }
 
+  /* If OUTPUT_SOURCE, write the Java file in DIRECTORY and return.  */
+  if (output_source)
+    {
+      int i;
+
+      for (i = 0; i < ndots; i++)
+        {
+          if (mkdir (subdirs[i], S_IRUSR | S_IWUSR | S_IXUSR) < 0)
+            {
+              error (0, errno, _("failed to create \"%s\""), subdirs[i]);
+              goto quit3;
+            }
+        }
+
+      java_file = fopen (java_file_name, "w");
+      if (java_file == NULL)
+        {
+          error (0, errno, _("failed to create \"%s\""), java_file_name);
+          goto quit3;
+        }
+
+      write_java_code (java_file, class_name, mlp, assume_java2);
+
+      if (fwriteerror (java_file))
+        {
+          error (0, errno, _("error while writing \"%s\" file"),
+                 java_file_name);
+          goto quit3;
+        }
+
+      retval = 0;
+      goto quit3;
+    }
+
   /* Create the subdirectories.  This is needed because some older Java
      compilers verify that the source of class A.B.C really sits in a
      directory whose name ends in /A/B.  */
@@ -1137,7 +1192,7 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
 
   /* Create the Java file.  */
   register_temp_file (tmpdir, java_file_name);
-  java_file = fopen_temp (java_file_name, "w");
+  java_file = fopen_temp (java_file_name, "w", false);
   if (java_file == NULL)
     {
       error (0, errno, _("failed to create \"%s\""), java_file_name);
@@ -1158,15 +1213,15 @@ msgdomain_write_java (message_list_ty *mlp, const char *canon_encoding,
      Java compilers create the class files in the source file's directory -
      which is in a temporary directory in our case.  */
   java_sources[0] = java_file_name;
-  if (compile_java_class (java_sources, 1, NULL, 0, "1.3", "1.1", directory,
+  if (compile_java_class (java_sources, 1, NULL, 0, "1.5", "1.6", directory,
                           true, false, true, verbose > 0))
     {
       if (!verbose)
-        error (0, 0, _("\
-compilation of Java class failed, please try --verbose or set $JAVAC"));
+        error (0, 0,
+               _("compilation of Java class failed, please try --verbose or set $JAVAC"));
       else
-        error (0, 0, _("\
-compilation of Java class failed, please try to set $JAVAC"));
+        error (0, 0,
+               _("compilation of Java class failed, please try to set $JAVAC"));
       goto quit3;
     }
 
@@ -1182,7 +1237,8 @@ compilation of Java class failed, please try to set $JAVAC"));
   freea (subdirs);
   free (class_name);
  quit2:
-  cleanup_temp_dir (tmpdir);
+  if (tmpdir != NULL)
+    cleanup_temp_dir (tmpdir);
  quit1:
   return retval;
 }

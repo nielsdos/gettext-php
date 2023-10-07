@@ -1,5 +1,5 @@
 /* Scheme format strings.
-   Copyright (C) 2001-2007, 2009 Free Software Foundation, Inc.
+   Copyright (C) 2001-2007, 2009, 2014, 2019, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -36,9 +36,8 @@
 #define _(str) gettext (str)
 
 
-/* Assertion macros.  Could be defined to empty for speed.  */
+/* Assertion macro.  Could be defined to empty for speed.  */
 #define ASSERT(expr) if (!(expr)) abort ();
-#define VERIFY_LIST(list) verify_list (list)
 
 
 /* Scheme format strings are described in the GNU guile documentation,
@@ -184,6 +183,7 @@ verify_list (const struct format_arg_list *list)
   ASSERT (total_repcount == list->repeated.length);
 }
 
+/* Assertion macro.  Could be defined to empty for speed.  */
 #define VERIFY_LIST(list) verify_list (list)
 
 
@@ -465,7 +465,7 @@ normalize_outermost_list (struct format_arg_list *list)
         }
       /* Proceed as if the loop period were n, with
          list->repeated.element[0].repcount incremented by repcount0_extra.  */
-      for (m = 2; m <= n / 2; n++)
+      for (m = 2; m <= n / 2; m++)
         if ((n % m) == 0)
           {
             /* m is a divisor of n.  Try to reduce the loop period to n.  */
@@ -492,6 +492,12 @@ normalize_outermost_list (struct format_arg_list *list)
                 break;
               }
           }
+      if (list->repeated.count == 1)
+        {
+          /* The loop has period 1.  Normalize the repcount.  */
+          list->repeated.element[0].repcount = 1;
+          list->repeated.length = 1;
+        }
 
       /* Step 3: Roll as much as possible of the initial segment's tail
          into the loop.  */
@@ -506,6 +512,7 @@ normalize_outermost_list (struct format_arg_list *list)
                  certainly different and doesn't need to be considered.  */
               list->initial.length -=
                 list->initial.element[list->initial.count-1].repcount;
+              free_element (&list->initial.element[list->initial.count-1]);
               list->initial.count--;
             }
         }
@@ -772,6 +779,7 @@ rotate_loop (struct format_arg_list *list, unsigned int m)
             }
           free (list->repeated.element);
           list->repeated.element = newelement;
+          list->repeated.count = newcount;
         }
     }
 }
@@ -1285,10 +1293,12 @@ make_intersected_list (struct format_arg_list *list1,
         /* Intersect the argument types.  */
         if (!make_intersected_element (re, e1, e2))
           {
+            bool re_is_required = re->presence == FCT_REQUIRED;
+
             append_repeated_to_initial (result);
 
             /* If re->presence == FCT_OPTIONAL, the result list ends here.  */
-            if (re->presence == FCT_REQUIRED)
+            if (re_is_required)
               /* Contradiction.  Backtrack.  */
               result = backtrack_in_initial (result);
 
@@ -1988,12 +1998,16 @@ add_type_constraint (struct format_arg_list *list, unsigned int n,
   newconstraint.type = type;
   if (!make_intersected_element (&tmpelement,
                                  &list->initial.element[s], &newconstraint))
-    return add_end_constraint (list, n);
-  free_element (&list->initial.element[s]);
-  list->initial.element[s].type = tmpelement.type;
-  list->initial.element[s].list = tmpelement.list;
+    list = add_end_constraint (list, n);
+  else
+    {
+      free_element (&list->initial.element[s]);
+      list->initial.element[s].type = tmpelement.type;
+      list->initial.element[s].list = tmpelement.list;
+    }
 
-  VERIFY_LIST (list);
+  if (list != NULL)
+    VERIFY_LIST (list);
 
   return list;
 }
@@ -2025,12 +2039,16 @@ add_listtype_constraint (struct format_arg_list *list, unsigned int n,
   newconstraint.list = sublist;
   if (!make_intersected_element (&tmpelement,
                                  &list->initial.element[s], &newconstraint))
-    return add_end_constraint (list, n);
-  free_element (&list->initial.element[s]);
-  list->initial.element[s].type = tmpelement.type;
-  list->initial.element[s].list = tmpelement.list;
+    list = add_end_constraint (list, n);
+  else
+    {
+      free_element (&list->initial.element[s]);
+      list->initial.element[s].type = tmpelement.type;
+      list->initial.element[s].list = tmpelement.list;
+    }
 
-  VERIFY_LIST (list);
+  if (list != NULL)
+    VERIFY_LIST (list);
 
   return list;
 }
@@ -2145,7 +2163,7 @@ make_repeated_list (struct format_arg_list *sublist, unsigned int period)
       for (i = 0; i < sublist->initial.count; i++)
         tmp.element[i] = sublist->initial.element[i];
       for (j = 0; j < sublist->repeated.count; i++, j++)
-        tmp.element[i] = sublist->initial.element[j];
+        tmp.element[i] = sublist->repeated.element[j];
       tmp.length = sublist->initial.length + sublist->repeated.length;
 
       srcseg = &tmp;
@@ -2285,7 +2303,7 @@ make_repeated_list (struct format_arg_list *sublist, unsigned int period)
           list->repeated.allocated = newcount;
           list->repeated.element = XNMALLOC (newcount, struct format_arg);
         }
-      for (i = splitindex, j = 0; i < n; i++, j++)
+      for (i = splitindex, j = 0; j < newcount; i++, j++)
         list->repeated.element[j] = list->initial.element[i];
       list->repeated.count = newcount;
       list->repeated.length = p;
@@ -2303,6 +2321,7 @@ make_repeated_list (struct format_arg_list *sublist, unsigned int period)
 
 /* Possible signatures of format directives.  */
 static const enum format_arg_type I [1] = { FAT_INTEGER_NULL };
+_GL_ATTRIBUTE_MAYBE_UNUSED
 static const enum format_arg_type II [2] = {
   FAT_INTEGER_NULL, FAT_INTEGER_NULL
 };
@@ -3572,7 +3591,7 @@ main ()
 /*
  * For Emacs M-x compile
  * Local Variables:
- * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../intl -DHAVE_CONFIG_H -DTEST format-scheme.c ../gnulib-lib/libgettextlib.la"
+ * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../../gettext-runtime/intl -DHAVE_CONFIG_H -DTEST format-scheme.c ../gnulib-lib/libgettextlib.la"
  * End:
  */
 

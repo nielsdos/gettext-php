@@ -1,5 +1,5 @@
 /* Creates an English translation catalog.
-   Copyright (C) 2001-2007, 2009-2010, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2007, 2009-2010, 2012, 2014, 2016, 2018-2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -26,13 +26,16 @@
 #include <stdlib.h>
 #include <locale.h>
 
+#include <textstyle.h>
+
+#include "noreturn.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "message.h"
 #include "read-catalog.h"
 #include "read-po.h"
@@ -44,7 +47,6 @@
 #include "write-po.h"
 #include "write-properties.h"
 #include "write-stringtable.h"
-#include "color.h"
 #include "propername.h"
 #include "gettext.h"
 
@@ -57,7 +59,7 @@ static int force_po;
 /* Long options.  */
 static const struct option long_options[] =
 {
-  { "add-location", no_argument, &line_comment, 1 },
+  { "add-location", optional_argument, NULL, 'n' },
   { "color", optional_argument, NULL, CHAR_MAX + 5 },
   { "directory", required_argument, NULL, 'D' },
   { "escape", no_argument, NULL, 'E' },
@@ -66,7 +68,7 @@ static const struct option long_options[] =
   { "indent", no_argument, NULL, 'i' },
   { "lang", required_argument, NULL, CHAR_MAX + 4 },
   { "no-escape", no_argument, NULL, 'e' },
-  { "no-location", no_argument, &line_comment, 0 },
+  { "no-location", no_argument, NULL, CHAR_MAX + 7 },
   { "no-wrap", no_argument, NULL, CHAR_MAX + 1 },
   { "output-file", required_argument, NULL, 'o' },
   { "properties-input", no_argument, NULL, 'P' },
@@ -78,17 +80,13 @@ static const struct option long_options[] =
   { "stringtable-output", no_argument, NULL, CHAR_MAX + 3 },
   { "style", required_argument, NULL, CHAR_MAX + 6 },
   { "version", no_argument, NULL, 'V' },
-  { "width", required_argument, NULL, 'w', },
+  { "width", required_argument, NULL, 'w' },
   { NULL, 0, NULL, 0 }
 };
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 
 
 int
@@ -110,10 +108,8 @@ main (int argc, char **argv)
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -128,8 +124,9 @@ main (int argc, char **argv)
   do_version = false;
   output_file = NULL;
 
-  while ((opt = getopt_long (argc, argv, "D:eEFhio:pPsVw:", long_options, NULL))
-         != EOF)
+  while ((opt = getopt_long (argc, argv,
+                             "D:eEFhin:o:pPsVw:",
+                             long_options, NULL)) != EOF)
     switch (opt)
       {
       case '\0':                /* Long option.  */
@@ -157,6 +154,11 @@ main (int argc, char **argv)
 
       case 'i':
         message_print_style_indent ();
+        break;
+
+      case 'n':
+        if (handle_filepos_comment_option (optarg))
+          usage (EXIT_FAILURE);
         break;
 
       case 'o':
@@ -218,6 +220,10 @@ main (int argc, char **argv)
         handle_style_option (optarg);
         break;
 
+      case CHAR_MAX + 7: /* --no-location */
+        message_print_style_filepos (filepos_comment_none);
+        break;
+
       default:
         usage (EXIT_FAILURE);
         break;
@@ -226,14 +232,15 @@ main (int argc, char **argv)
   /* Version information is requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "2001-2010");
+              "2001-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Bruno Haible"));
       exit (EXIT_SUCCESS);
     }
@@ -255,10 +262,6 @@ There is NO WARRANTY, to the extent permitted by law.\n\
     }
 
   /* Verify selected options.  */
-  if (!line_comment && sort_by_filepos)
-    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
-           "--no-location", "--sort-by-file");
-
   if (sort_by_msgid && sort_by_filepos)
     error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
            "--sort-output", "--sort-by-file");
@@ -355,7 +358,7 @@ Output details:\n"));
       printf (_("\
       --no-location           suppress '#: filename:line' lines\n"));
       printf (_("\
-      --add-location          preserve '#: filename:line' lines (default)\n"));
+  -n, --add-location          preserve '#: filename:line' lines (default)\n"));
       printf (_("\
       --strict                strict Uniforum output style\n"));
       printf (_("\
@@ -379,12 +382,16 @@ Informative output:\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);

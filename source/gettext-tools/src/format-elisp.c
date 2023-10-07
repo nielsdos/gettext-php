@@ -1,5 +1,5 @@
 /* Emacs Lisp format strings.
-   Copyright (C) 2001-2004, 2006-2007, 2009 Free Software Foundation, Inc.
+   Copyright (C) 2001-2004, 2006-2007, 2009, 2019-2020 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2002.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -73,7 +73,6 @@ struct spec
 {
   unsigned int directives;
   unsigned int numbered_arg_count;
-  unsigned int allocated;
   struct numbered_arg *numbered;
 };
 
@@ -99,13 +98,14 @@ format_parse (const char *format, bool translated, char *fdi,
 {
   const char *const format_start = format;
   struct spec spec;
+  unsigned int numbered_allocated;
   struct spec *result;
   unsigned int number;
 
   spec.directives = 0;
   spec.numbered_arg_count = 0;
-  spec.allocated = 0;
   spec.numbered = NULL;
+  numbered_allocated = 0;
   number = 1;
 
   for (; *format != '\0';)
@@ -146,10 +146,10 @@ format_parse (const char *format, bool translated, char *fdi,
           {
             format++;
 
-            if (spec.allocated == spec.numbered_arg_count)
+            if (numbered_allocated == spec.numbered_arg_count)
               {
-                spec.allocated = 2 * spec.allocated + 1;
-                spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, spec.allocated * sizeof (struct numbered_arg));
+                numbered_allocated = 2 * numbered_allocated + 1;
+                spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, numbered_allocated * sizeof (struct numbered_arg));
               }
             spec.numbered[spec.numbered_arg_count].number = number;
             spec.numbered[spec.numbered_arg_count].type = FAT_INTEGER;
@@ -171,10 +171,10 @@ format_parse (const char *format, bool translated, char *fdi,
               {
                 format++;
 
-                if (spec.allocated == spec.numbered_arg_count)
+                if (numbered_allocated == spec.numbered_arg_count)
                   {
-                    spec.allocated = 2 * spec.allocated + 1;
-                    spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, spec.allocated * sizeof (struct numbered_arg));
+                    numbered_allocated = 2 * numbered_allocated + 1;
+                    spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, numbered_allocated * sizeof (struct numbered_arg));
                   }
                 spec.numbered[spec.numbered_arg_count].number = number;
                 spec.numbered[spec.numbered_arg_count].type = FAT_INTEGER;
@@ -225,10 +225,10 @@ format_parse (const char *format, bool translated, char *fdi,
 
         if (type != FAT_NONE)
           {
-            if (spec.allocated == spec.numbered_arg_count)
+            if (numbered_allocated == spec.numbered_arg_count)
               {
-                spec.allocated = 2 * spec.allocated + 1;
-                spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, spec.allocated * sizeof (struct numbered_arg));
+                numbered_allocated = 2 * numbered_allocated + 1;
+                spec.numbered = (struct numbered_arg *) xrealloc (spec.numbered, numbered_allocated * sizeof (struct numbered_arg));
               }
             spec.numbered[spec.numbered_arg_count].number = number;
             spec.numbered[spec.numbered_arg_count].type = type;
@@ -332,7 +332,7 @@ format_check (void *msgid_descr, void *msgstr_descr, bool equality,
       unsigned int n1 = spec1->numbered_arg_count;
       unsigned int n2 = spec2->numbered_arg_count;
 
-      /* Check the argument names are the same.
+      /* Check that the argument numbers are the same.
          Both arrays are sorted.  We search for the first difference.  */
       for (i = 0, j = 0; i < n1 || j < n2; )
         {
@@ -495,7 +495,7 @@ main ()
 /*
  * For Emacs M-x compile
  * Local Variables:
- * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../intl -DHAVE_CONFIG_H -DTEST format-elisp.c ../gnulib-lib/libgettextlib.la"
+ * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../../gettext-runtime/intl -DHAVE_CONFIG_H -DTEST format-elisp.c ../gnulib-lib/libgettextlib.la"
  * End:
  */
 

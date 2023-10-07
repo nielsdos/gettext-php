@@ -1,5 +1,6 @@
 /* xgetcwd.c -- return current directory with unlimited length
-   Copyright (C) 1992, 1996, 2000, 2003, 2005-2006, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1992, 1996, 2000, 2003, 2005-2006, 2011, 2020 Free
+   Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,11 +13,14 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 /* Written by David MacKenzie <djm@gnu.ai.mit.edu>.  */
 
 #include <config.h>
+
+/* Specification.  */
+#include "xgetcwd.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,7 +53,7 @@ char *getwd ();
    Return NULL and set errno on error. */
 
 char *
-xgetcwd ()
+xgetcwd (void)
 {
   char *ret;
   unsigned path_max;

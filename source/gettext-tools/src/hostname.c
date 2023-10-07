@@ -1,5 +1,5 @@
 /* Display hostname in various forms.
-   Copyright (C) 2001-2003, 2006-2007, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2006-2007, 2012, 2014, 2018-2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -27,32 +27,22 @@
 #include <string.h>
 #include <locale.h>
 
-#if defined _WIN32 || defined __WIN32__
+#if defined _WIN32
 # define WIN32_NATIVE
 #endif
 
-/* Get gethostname().  */
-#include <unistd.h>
 
-#ifdef WIN32_NATIVE
-/* Native Woe32 API lacks gethostname() but has GetComputerName() instead.  */
-# include <windows.h>
-#else
-/* Some systems, like early Solaris versions, lack gethostname() but
-   have uname() instead.  */
-# if !HAVE_GETHOSTNAME
-#  include <sys/utsname.h>
-# endif
-#endif
+/* We use the getaddrinfo and getnameinfo implementation from gnulib.  */
+#define HAVE_GETADDRINFO 1
 
-/* Get MAXHOSTNAMELEN.  */
-#include <sys/param.h>
-#ifndef MAXHOSTNAMELEN
-# define MAXHOSTNAMELEN 64
-#endif
-
+/* Support for using getaddrinfo() and getnameinfo().  */
+#if HAVE_GETADDRINFO
+# include <sys/types.h>
+# include <sys/socket.h> /* defines AF_INET, AF_INET6 */
+# include <netdb.h>      /* declares getaddrinfo(), getnameinfo() */
+# include <netinet/in.h> /* defines struct sockaddr_in, struct sockaddr_in6 */
 /* Support for using gethostbyname().  */
-#if HAVE_GETHOSTBYNAME
+#elif HAVE_GETHOSTBYNAME
 # include <sys/types.h>
 # include <sys/socket.h> /* defines AF_INET, AF_INET6 */
 # include <netinet/in.h> /* declares ntohs(), defines struct sockaddr_in */
@@ -75,15 +65,43 @@
 # include <netdb.h> /* defines struct hostent, declares gethostbyname() */
 #endif
 
+
+/* Do these includes after the network-related ones, because on native Windows,
+   the #include <winsock2.h> must precede the #include <windows.h>.  */
+
+/* Get gethostname().  */
+#include <unistd.h>
+
+#ifdef WIN32_NATIVE
+/* Native Woe32 API lacks gethostname() but has GetComputerName() instead.  */
+# include <windows.h>
+#else
+/* Some systems, like early Solaris versions, lack gethostname() but
+   have uname() instead.  */
+# if !HAVE_GETHOSTNAME
+#  include <sys/utsname.h>
+# endif
+#endif
+
+/* Get MAXHOSTNAMELEN.  */
+#if HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+#ifndef MAXHOSTNAMELEN
+# define MAXHOSTNAMELEN 64
+#endif
+
+
 /* Include this after <sys/socket.h>, to avoid a syntax error on BeOS.  */
 #include <stdbool.h>
 
+#include "noreturn.h"
 #include "closeout.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "xalloc.h"
 #include "propername.h"
 #include "gettext.h"
@@ -108,11 +126,7 @@ static const struct option long_options[] =
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-     __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 static void print_hostname (void);
 
 int
@@ -126,10 +140,8 @@ main (int argc, char *argv[])
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -173,14 +185,15 @@ main (int argc, char *argv[])
   /* Version information requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "2001-2003, 2006-2007");
+              "2001-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Bruno Haible"));
       exit (EXIT_SUCCESS);
     }
@@ -232,12 +245,16 @@ Informative output:\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -311,16 +328,31 @@ xgethostname ()
 # endif
 #endif
 
+/* Tests whether an IPv4 address is link-local.  */
+static bool
+ipv4_is_linklocal (const struct in_addr *addr)
+{
+  return (((const unsigned char *) addr)[0] == 169)
+         && (((const unsigned char *) addr)[1] == 254);
+}
+
+#if HAVE_IPV6
+/* Tests whether an IPv6 address is link-local.  */
+static bool
+ipv6_is_linklocal (const struct in6_addr *addr)
+{
+  /* Cf. IN6_IS_ADDR_LINKLOCAL macro.  */
+  return (((const unsigned char *) addr)[0] == 0xFE)
+         && ((((const unsigned char *) addr)[1] & 0xC0) == 0x80);
+}
+#endif
+
 /* Print the hostname according to the specified format.  */
 static void
 print_hostname ()
 {
   char *hostname;
   char *dot;
-#if HAVE_GETHOSTBYNAME
-  struct hostent *h;
-  size_t i;
-#endif
 
   hostname = xgethostname ();
 
@@ -340,44 +372,135 @@ print_hostname ()
       break;
 
     case long_format:
+#if HAVE_GETADDRINFO
+      /* Look for netwide usable hostname and aliases using getaddrinfo().
+         getnameinfo() is not even needed.  */
+      {
+        struct addrinfo hints;
+        struct addrinfo *res;
+        int ret;
+
+        memset (&hints, 0, sizeof (hints));
+        hints.ai_family = AF_UNSPEC; /* either AF_INET or AF_INET6 is ok */
+        hints.ai_socktype = SOCK_STREAM; /* or SOCK_DGRAM or 0 */
+        hints.ai_protocol = 0; /* any protocol is ok */
+        hints.ai_flags = AI_CANONNAME;
+
+        ret = getaddrinfo (hostname, NULL, &hints, &res);
+        if (ret == 0)
+          {
+            struct addrinfo *p;
+
+            for (p = res; p != NULL; p = p->ai_next)
+              {
+                /* Typically p->ai_socktype == SOCK_STREAM, p->ai_protocol == IPPROTO_TCP,
+                   or        p->ai_socktype == SOCK_DGRAM, p->ai_protocol == IPPROTO_UDP.  */
+                /* p->ai_canonname is only set on the first 'struct addrinfo'.  */
+                if (p->ai_canonname != NULL)
+                  printf ("%s\n", p->ai_canonname);
+              }
+
+            freeaddrinfo (res);
+          }
+        else
+          printf ("%s\n", hostname);
+      }
+#elif HAVE_GETHOSTBYNAME
       /* Look for netwide usable hostname and aliases using gethostbyname().  */
-#if HAVE_GETHOSTBYNAME
-      h = gethostbyname (hostname);
-      if (h != NULL)
-        {
-          printf ("%s\n", h->h_name);
-          if (h->h_aliases != NULL)
-            for (i = 0; h->h_aliases[i] != NULL; i++)
-              printf ("%s\n", h->h_aliases[i]);
-        }
-      else
+      {
+        struct hostent *h;
+        size_t i;
+
+        h = gethostbyname (hostname);
+        if (h != NULL)
+          {
+            printf ("%s\n", h->h_name);
+            if (h->h_aliases != NULL)
+              for (i = 0; h->h_aliases[i] != NULL; i++)
+                printf ("%s\n", h->h_aliases[i]);
+          }
+        else
+          printf ("%s\n", hostname);
+      }
+#else
+      printf ("%s\n", hostname);
 #endif
-        printf ("%s\n", hostname);
       break;
 
     case ip_format:
-      /* Look for netwide usable IP addresses using gethostbyname().  */
-#if HAVE_GETHOSTBYNAME
-      h = gethostbyname (hostname);
-      if (h != NULL && h->h_addr_list != NULL)
-        for (i = 0; h->h_addr_list[i] != NULL; i++)
+#if HAVE_GETADDRINFO
+      /* Look for netwide usable IP addresses using getaddrinfo() and
+         getnameinfo().  */
+      {
+        struct addrinfo hints;
+        struct addrinfo *res;
+        int ret;
+        char host[1025];
+
+        memset (&hints, 0, sizeof (hints));
+        hints.ai_family = AF_UNSPEC; /* either AF_INET or AF_INET6 is ok */
+        hints.ai_socktype = SOCK_STREAM; /* or SOCK_DGRAM */
+        hints.ai_protocol = 0; /* any protocol is ok */
+        hints.ai_flags = 0;
+
+        ret = getaddrinfo (hostname, NULL, &hints, &res);
+        if (ret == 0)
           {
-#if HAVE_IPV6
-            if (h->h_addrtype == AF_INET6)
+            struct addrinfo *p;
+
+            for (p = res; p != NULL; p = p->ai_next)
               {
-                char buffer[45+1];
-                ipv6_ntop (buffer, *(const struct in6_addr*) h->h_addr_list[i]);
-                printf("[%s]\n", buffer);
+                /* Typically p->ai_socktype == SOCK_STREAM, p->ai_protocol == IPPROTO_TCP,
+                   or        p->ai_socktype == SOCK_DGRAM, p->ai_protocol == IPPROTO_UDP.  */
+                /* Ignore link-local addresses.
+                   <https://en.wikipedia.org/wiki/Link-local_address>.  */
+                if (!((p->ai_family == AF_INET
+                       && ipv4_is_linklocal (&((const struct sockaddr_in *) p->ai_addr)->sin_addr))
+# if HAVE_IPV6
+                      || (p->ai_family == AF_INET6
+                          && ipv6_is_linklocal (&((const struct sockaddr_in6 *) p->ai_addr)->sin6_addr))
+# endif
+                   ) )
+                  if (getnameinfo (p->ai_addr, p->ai_addrlen,
+                                   host, sizeof (host),
+                                   NULL, 0,
+                                   NI_NUMERICHOST)
+                      == 0)
+                    {
+                      printf ("[%.*s]\n", (int) sizeof (host), host);
+                    }
               }
-            else
-#endif
-            if (h->h_addrtype == AF_INET)
-              {
-                char buffer[15+1];
-                ipv4_ntop (buffer, *(const struct in_addr*) h->h_addr_list[i]);
-                printf("[%s]\n", buffer);
-              }
+
+            freeaddrinfo (res);
           }
+      }
+#elif HAVE_GETHOSTBYNAME
+      /* Look for netwide usable IP addresses using gethostbyname().  */
+      {
+        struct hostent *h;
+        size_t i;
+
+        h = gethostbyname (hostname);
+        if (h != NULL && h->h_addr_list != NULL)
+          for (i = 0; h->h_addr_list[i] != NULL; i++)
+            {
+# if HAVE_IPV6
+              if (h->h_addrtype == AF_INET6)
+                {
+                  char buffer[45+1];
+                  ipv6_ntop (buffer, *(const struct in6_addr*) h->h_addr_list[i]);
+                  printf("[%s]\n", buffer);
+                }
+              else
+# endif
+              if (h->h_addrtype == AF_INET)
+                {
+                  char buffer[15+1];
+                  ipv4_ntop (buffer, *(const struct in_addr*) h->h_addr_list[i]);
+                  printf("[%s]\n", buffer);
+                }
+            }
+      }
 #endif
       break;
 

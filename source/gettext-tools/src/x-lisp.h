@@ -1,5 +1,5 @@
 /* xgettext Lisp backend.
-   Copyright (C) 2001-2003, 2006 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2006, 2014, 2018, 2020 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,13 +13,13 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #include <stdio.h>
 
 #include "message.h"
-#include "xgettext.h"
+#include "xg-arglist-context.h"
 
 
 #ifdef __cplusplus
@@ -31,7 +31,7 @@ extern "C" {
   { "lisp",      "Lisp"     },                                          \
 
 #define SCANNERS_LISP \
-  { "Lisp",             extract_lisp,                                   \
+  { "Lisp",             extract_lisp, NULL,                             \
                         &flag_table_lisp, &formatstring_lisp, NULL },   \
 
 /* Scan a Lisp file and add its translatable strings to mdlp.  */

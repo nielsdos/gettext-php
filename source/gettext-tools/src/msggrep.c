@@ -1,5 +1,5 @@
 /* Extract some translations of a translation catalog.
-   Copyright (C) 2001-2007, 2009-2010, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2007, 2009-2010, 2012, 2014, 2016, 2018-2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -37,13 +37,16 @@
 
 #include <fnmatch.h>
 
+#include <textstyle.h>
+
+#include "noreturn.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "message.h"
 #include "read-catalog.h"
 #include "read-po.h"
@@ -53,7 +56,6 @@
 #include "write-po.h"
 #include "write-properties.h"
 #include "write-stringtable.h"
-#include "color.h"
 #include "str-list.h"
 #include "msgl-charset.h"
 #include "xalloc.h"
@@ -91,7 +93,7 @@ static struct grep_task grep_task[5];
 /* Long options.  */
 static const struct option long_options[] =
 {
-  { "add-location", no_argument, &line_comment, 1 },
+  { "add-location", optional_argument, NULL, 'n' },
   { "color", optional_argument, NULL, CHAR_MAX + 9 },
   { "comment", no_argument, NULL, 'C' },
   { "directory", required_argument, NULL, 'D' },
@@ -111,7 +113,7 @@ static const struct option long_options[] =
   { "msgid", no_argument, NULL, 'K' },
   { "msgstr", no_argument, NULL, 'T' },
   { "no-escape", no_argument, NULL, CHAR_MAX + 3 },
-  { "no-location", no_argument, &line_comment, 0 },
+  { "no-location", no_argument, NULL, CHAR_MAX + 11 },
   { "no-wrap", no_argument, NULL, CHAR_MAX + 6 },
   { "output-file", required_argument, NULL, 'o' },
   { "properties-input", no_argument, NULL, 'P' },
@@ -130,16 +132,8 @@ static const struct option long_options[] =
 
 
 /* Forward declaration of local functions.  */
-static void no_pass (int opt)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void no_pass (int opt);
+_GL_NORETURN_FUNC static void usage (int status);
 static msgdomain_list_ty *process_msgdomain_list (msgdomain_list_ty *mdlp);
 
 
@@ -163,10 +157,8 @@ main (int argc, char **argv)
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -196,7 +188,7 @@ main (int argc, char **argv)
       gt->case_insensitive = false;
     }
 
-  while ((opt = getopt_long (argc, argv, "CD:e:Ef:FhiJKM:N:o:pPTvVw:X",
+  while ((opt = getopt_long (argc, argv, "CD:e:Ef:FhiJKM:n:N:o:pPTvVw:X",
                              long_options, NULL))
          != EOF)
     switch (opt)
@@ -244,8 +236,8 @@ main (int argc, char **argv)
           FILE *fp = fopen (optarg, "r");
 
           if (fp == NULL)
-            error (EXIT_FAILURE, errno, _("\
-error while opening \"%s\" for reading"), optarg);
+            error (EXIT_FAILURE, errno,
+                   _("error while opening \"%s\" for reading"), optarg);
 
           while (!feof (fp))
             {
@@ -255,8 +247,8 @@ error while opening \"%s\" for reading"), optarg);
               if (count == 0)
                 {
                   if (ferror (fp))
-                    error (EXIT_FAILURE, errno, _("\
-error while reading \"%s\""), optarg);
+                    error (EXIT_FAILURE, errno,
+                           _("error while reading \"%s\""), optarg);
                   /* EOF reached.  */
                   break;
                 }
@@ -308,6 +300,11 @@ error while reading \"%s\""), optarg);
 
       case 'M':
         string_list_append (domain_names, optarg);
+        break;
+
+      case 'n':
+        if (handle_filepos_comment_option (optarg))
+          usage (EXIT_FAILURE);
         break;
 
       case 'N':
@@ -397,6 +394,10 @@ error while reading \"%s\""), optarg);
         handle_style_option (optarg);
         break;
 
+      case CHAR_MAX + 11: /* --no-location */
+        message_print_style_filepos (filepos_comment_none);
+        break;
+
       default:
         usage (EXIT_FAILURE);
         break;
@@ -405,14 +406,15 @@ error while reading \"%s\""), optarg);
   /* Version information is requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "2001-2010");
+              "2001-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Bruno Haible"));
       exit (EXIT_SUCCESS);
     }
@@ -433,10 +435,6 @@ There is NO WARRANTY, to the extent permitted by law.\n\
     }
 
   /* Verify selected options.  */
-  if (!line_comment && sort_by_filepos)
-    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
-           "--no-location", "--sort-by-file");
-
   if (sort_by_msgid && sort_by_filepos)
     error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
            "--sort-output", "--sort-by-file");
@@ -603,7 +601,7 @@ Output details:\n"));
       printf (_("\
       --no-location           suppress '#: filename:line' lines\n"));
       printf (_("\
-      --add-location          preserve '#: filename:line' lines (default)\n"));
+  -n, --add-location          preserve '#: filename:line' lines (default)\n"));
       printf (_("\
       --strict                strict Uniforum output style\n"));
       printf (_("\
@@ -627,12 +625,16 @@ Informative output:\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -651,28 +653,6 @@ filename_list_match (const string_list_ty *slp, const char *filename)
       return true;
   return false;
 }
-
-
-#ifdef EINTR
-
-/* EINTR handling for close().
-   These functions can return -1/EINTR even though we don't have any
-   signal handlers set up, namely when we get interrupted via SIGSTOP.  */
-
-static inline int
-nonintr_close (int fd)
-{
-  int retval;
-
-  do
-    retval = close (fd);
-  while (retval < 0 && errno == EINTR);
-
-  return retval;
-}
-#define close nonintr_close
-
-#endif
 
 
 /* Process a string STR of size LEN bytes through grep, and return true

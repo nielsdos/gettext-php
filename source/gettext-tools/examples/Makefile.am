@@ -1,5 +1,5 @@
 ## Makefile for the gettext-tools/examples subdirectory of GNU gettext
-## Copyright (C) 2001-2007, 2009-2012 Free Software Foundation, Inc.
+## Copyright (C) 2001-2007, 2009-2016, 2018-2023 Free Software Foundation, Inc.
 ##
 ## This program is free software: you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -12,14 +12,16 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with this program.  If not, see <http://www.gnu.org/licenses/>.
+## along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Process this file with automake to produce Makefile.in.
 
 AUTOMAKE_OPTIONS = 1.2 foreign
 ACLOCAL_AMFLAGS = -I ../../gettext-runtime/m4 -I ../../m4
 SUBDIRS = po
-EXTRA_DIST =
+EXTRA_DIST = \
+  HACKING \
+  check-examples
 
 examplesdir = $(docdir)/examples
 
@@ -51,6 +53,20 @@ EXAMPLESFILES = \
   hello-c-gnome/po/Makevars \
   hello-c-gnome/po/POTFILES.in \
   \
+  hello-c-gnome3/INSTALL \
+  hello-c-gnome3/autogen.sh \
+  hello-c-gnome3/autoclean.sh \
+  hello-c-gnome3/hello.c \
+  hello-c-gnome3/hello.desktop.in.in \
+  hello-c-gnome3/hello.gschema.xml \
+  hello-c-gnome3/hello.gresource.xml \
+  hello-c-gnome3/hello.ui \
+  hello-c-gnome3/Makefile.am \
+  hello-c-gnome3/configure.ac \
+  hello-c-gnome3/m4/Makefile.am \
+  hello-c-gnome3/po/Makevars \
+  hello-c-gnome3/po/POTFILES.in \
+  \
   hello-c++/INSTALL \
   hello-c++/autogen.sh \
   hello-c++/autoclean.sh \
@@ -60,6 +76,16 @@ EXAMPLESFILES = \
   hello-c++/m4/Makefile.am \
   hello-c++/po/Makevars \
   hello-c++/po/POTFILES.in \
+  \
+  hello-c++20/INSTALL \
+  hello-c++20/autogen.sh \
+  hello-c++20/autoclean.sh \
+  hello-c++20/hello.cc \
+  hello-c++20/Makefile.am \
+  hello-c++20/configure.ac \
+  hello-c++20/m4/Makefile.am \
+  hello-c++20/po/Makevars \
+  hello-c++20/po/POTFILES.in \
   \
   hello-c++-qt/INSTALL \
   hello-c++-qt/BUGS \
@@ -280,7 +306,6 @@ EXAMPLESFILES = \
   \
   hello-csharp-forms/INSTALL \
   hello-csharp-forms/README \
-  hello-csharp-forms/BUGS \
   hello-csharp-forms/autogen.sh \
   hello-csharp-forms/autoclean.sh \
   hello-csharp-forms/hello.cs \
@@ -302,7 +327,6 @@ EXAMPLESFILES = \
   hello-pascal/autogen.sh \
   hello-pascal/autoclean.sh \
   hello-pascal/hello.pas \
-  hello-pascal/hello.rst \
   hello-pascal/Makefile.am \
   hello-pascal/configure.ac \
   hello-pascal/m4/Makefile.am \
@@ -361,7 +385,9 @@ EXAMPLESFILES = \
 EXAMPLESDIRS = \
   hello-c \
   hello-c-gnome \
+  hello-c-gnome3 \
   hello-c++ \
+  hello-c++20 \
   hello-c++-qt \
   hello-c++-kde \
   hello-c++-gnome \
@@ -411,20 +437,25 @@ EXAMPLESPOFILES = \
   id.po \
   it.po \
   ja.po \
+  ka.po \
   ky.po \
   lv.po \
   ms.po \
   mt.po \
   nb.po \
   nl.po \
+  nn.po \
   pl.po \
   pt.po \
+  pt_BR.po \
   ro.po \
   ru.po \
   sk.po \
   sl.po \
+  sq.po \
   sr.po \
   sv.po \
+  ta.po \
   tr.po \
   uk.po \
   vi.po \
@@ -449,6 +480,10 @@ install-data-local: $(EXAMPLESFILES)
 	for f1 in $(EXAMPLESDIRS); do \
 	  for f2 in $(EXAMPLESPOFILES); do \
 	    f=$$f1/po/$$f2; \
+	    test -f $(srcdir)/$$f || { \
+	      echo "WARNING: $(srcdir)/$$f doesn't exist; do \"make dist\" to prepare" >&2; \
+	      break; \
+	    }; \
 	    d=`echo /$$f | sed -e 's,/[^/]*$$,,'`; \
 	    test -z "$$d" || $(MKDIR_P) $(DESTDIR)$(examplesdir)$$d || exit 1; \
 	    b=`echo $$f | sed -e 's,^.*/,,'`; \
@@ -484,7 +519,7 @@ uninstall-local:
 
 # Invoked from inside automake's distdir target.
 distdir1:
-	cd po && $(MAKE) update-po
+	cd po && $(MAKE) update-po all
 	for file in $(EXAMPLESFILES); do \
 	  if test -f $$file; then d=.; else d=$(srcdir); fi; \
 	  dir=`echo "$$file" | sed -e 's,/[^/]*$$,,'`; \
@@ -508,3 +543,8 @@ distdir1:
 # Temporary directories created by po/Makefile.
 clean-local:
 	-rm -rf tmp-hello-*
+
+maintainer-update-po: $(top_builddir)/config.status
+	$(SHELL) ./config.status --recheck
+	$(SHELL) ./config.status po/Makefile
+	cd po && $(MAKE) update-po

@@ -1,5 +1,5 @@
 /* Expression parsing and evaluation for plural form selection.
-   Copyright (C) 2000-2003, 2005-2007 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Written by Ulrich Drepper <drepper@cygnus.com>, 2000.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,14 +13,10 @@
    GNU Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _PLURAL_EXP_H
 #define _PLURAL_EXP_H
-
-#ifndef internal_function
-# define internal_function
-#endif
 
 #ifndef attribute_hidden
 # define attribute_hidden
@@ -30,6 +26,8 @@
 extern "C" {
 #endif
 
+
+/* Parsing a plural expression.  */
 
 enum expression_operator
 {
@@ -94,10 +92,10 @@ struct parse_args
 # define GERMANIC_PLURAL __gettext_germanic_plural
 # define EXTRACT_PLURAL_EXPRESSION __gettext_extract_plural
 #elif defined (IN_LIBINTL)
-# define FREE_EXPRESSION libintl_gettext_free_exp
-# define PLURAL_PARSE libintl_gettextparse
-# define GERMANIC_PLURAL libintl_gettext_germanic_plural
-# define EXTRACT_PLURAL_EXPRESSION libintl_gettext_extract_plural
+# define FREE_EXPRESSION _libintl_gettext_free_exp
+# define PLURAL_PARSE _libintl_gettextparse
+# define GERMANIC_PLURAL _libintl_gettext_germanic_plural
+# define EXTRACT_PLURAL_EXPRESSION _libintl_gettext_extract_plural
 #else
 # define FREE_EXPRESSION free_plural_expression
 # define PLURAL_PARSE parse_plural_expression
@@ -105,18 +103,35 @@ struct parse_args
 # define EXTRACT_PLURAL_EXPRESSION extract_plural_expression
 #endif
 
-extern void FREE_EXPRESSION (struct expression *exp)
-     internal_function;
-extern int PLURAL_PARSE (void *arg);
-extern struct expression GERMANIC_PLURAL attribute_hidden;
+extern void FREE_EXPRESSION (struct expression *exp) attribute_hidden;
+extern int PLURAL_PARSE (struct parse_args *arg);
+extern const struct expression GERMANIC_PLURAL attribute_hidden;
 extern void EXTRACT_PLURAL_EXPRESSION (const char *nullentry,
 				       const struct expression **pluralp,
 				       unsigned long int *npluralsp)
-     internal_function;
+     attribute_hidden;
+
+
+/* Evaluating a parsed plural expression.  */
+
+enum eval_status
+{
+  PE_OK,        /* Evaluation succeeded, produced a value */
+  PE_INTDIV,    /* Integer division by zero */
+  PE_INTOVF,    /* Integer overflow */
+  PE_STACKOVF,  /* Stack overflow */
+  PE_ASSERT     /* Assertion failure */
+};
+
+struct eval_result
+{
+  enum eval_status status;
+  unsigned long int value;      /* Only relevant for status == PE_OK */
+};
 
 #if !defined (_LIBC) && !defined (IN_LIBINTL) && !defined (IN_LIBGLOCALE)
-extern unsigned long int plural_eval (const struct expression *pexp,
-				      unsigned long int n);
+extern struct eval_result plural_eval (const struct expression *pexp,
+				       unsigned long int n);
 #endif
 
 

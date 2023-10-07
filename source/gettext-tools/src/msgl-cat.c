@@ -1,5 +1,5 @@
 /* Message list concatenation and duplicate handling.
-   Copyright (C) 2001-2003, 2005-2008, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2005-2008, 2012, 2015, 2019-2021, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -37,12 +37,13 @@
 #include "read-catalog.h"
 #include "po-charset.h"
 #include "msgl-ascii.h"
+#include "msgl-ofn.h"
 #include "msgl-equal.h"
 #include "msgl-iconv.h"
 #include "xalloc.h"
 #include "xmalloca.h"
 #include "c-strstr.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "gettext.h"
 
 #define _(str) gettext (str)
@@ -162,20 +163,22 @@ catenate_msgdomain_list (string_list_ty *file_list,
                             if (canon_charset == NULL)
                               {
                                 /* Don't give an error for POT files, because
-                                   POT files usually contain only ASCII
+                                   POT files usually contain only ASCII msgids.
+                                   Also don't give an error for disguised POT
+                                   files that actually contain only ASCII
                                    msgids.  */
                                 const char *filename = files[n];
                                 size_t filenamelen = strlen (filename);
 
-                                if (filenamelen >= 4
-                                    && memcmp (filename + filenamelen - 4,
-                                               ".pot", 4) == 0
-                                    && strcmp (charset, "CHARSET") == 0)
+                                if (strcmp (charset, "CHARSET") == 0
+                                    && ((filenamelen >= 4
+                                         && memcmp (filename + filenamelen - 4,
+                                                    ".pot", 4) == 0)
+                                        || is_ascii_message_list (mlp)))
                                   canon_charset = po_charset_ascii;
                                 else
                                   error (EXIT_FAILURE, 0,
-                                         _("\
-present charset \"%s\" is not a portable encoding name"),
+                                         _("present charset \"%s\" is not a portable encoding name"),
                                          charset);
                               }
 
@@ -185,8 +188,7 @@ present charset \"%s\" is not a portable encoding name"),
                               canon_from_code = canon_charset;
                             else if (canon_from_code != canon_charset)
                               error (EXIT_FAILURE, 0,
-                                     _("\
-two different charsets \"%s\" and \"%s\" in input file"),
+                                     _("two different charsets \"%s\" and \"%s\" in input file"),
                                      canon_from_code, canon_charset);
                           }
                       }
@@ -200,12 +202,12 @@ two different charsets \"%s\" and \"%s\" in input file"),
                   else
                     {
                       if (k == 0)
-                        error (EXIT_FAILURE, 0, _("\
-input file '%s' doesn't contain a header entry with a charset specification"),
+                        error (EXIT_FAILURE, 0,
+                               _("input file '%s' doesn't contain a header entry with a charset specification"),
                                files[n]);
                       else
-                        error (EXIT_FAILURE, 0, _("\
-domain \"%s\" in input file '%s' doesn't contain a header entry with a charset specification"),
+                        error (EXIT_FAILURE, 0,
+                               _("domain \"%s\" in input file '%s' doesn't contain a header entry with a charset specification"),
                                mdlp->item[k]->domain, files[n]);
                     }
                 }
@@ -218,7 +220,7 @@ domain \"%s\" in input file '%s' doesn't contain a header entry with a charset s
   identifications = XNMALLOC (nfiles, const char **);
   for (n = 0; n < nfiles; n++)
     {
-      const char *filename = basename (files[n]);
+      const char *filename = last_component (files[n]);
       msgdomain_list_ty *mdlp = mdlps[n];
       size_t k;
 
@@ -298,7 +300,18 @@ domain \"%s\" in input file '%s' doesn't contain a header entry with a charset s
               size_t i;
 
               tmp = message_list_search (total_mlp, mp->msgctxt, mp->msgid);
-              if (tmp == NULL)
+              if (tmp != NULL)
+                {
+                  if ((tmp->msgid_plural != NULL) != (mp->msgid_plural != NULL))
+                    {
+                      char *errormsg =
+                        xasprintf (_("msgid '%s' is used without plural and with plural."),
+                                   mp->msgid);
+                      multiline_error (xstrdup (""),
+                                       xasprintf ("%s\n", errormsg));
+                    }
+                }
+              else
                 {
                   tmp = message_alloc (mp->msgctxt, mp->msgid, mp->msgid_plural,
                                        NULL, 0, &mp->pos);
@@ -308,6 +321,8 @@ domain \"%s\" in input file '%s' doesn't contain a header entry with a charset s
                   tmp->range.min = - INT_MAX;
                   tmp->range.max = - INT_MAX;
                   tmp->do_wrap = yes; /* may be set to no later */
+                  for (i = 0; i < NSYNTAXCHECKS; i++)
+                    tmp->do_syntax_check[i] = undecided; /* may be set to yes/no later */
                   tmp->obsolete = true; /* may be set to false later */
                   tmp->alternative_count = 0;
                   tmp->alternative = NULL;
@@ -381,6 +396,16 @@ domain \"%s\" in input file '%s' doesn't contain a header entry with a charset s
         total_mdlp->encoding = mdlps[0]->encoding;
     }
 
+  /* Determine whether we need a target encoding that contains the control
+     characters needed for escaping file names with spaces.  */
+  bool has_filenames_with_spaces = false;
+  for (n = 0; n < nfiles; n++)
+    {
+      has_filenames_with_spaces =
+        has_filenames_with_spaces
+        || msgdomain_list_has_filenames_with_spaces (mdlps[n]);
+    }
+
   /* Determine the target encoding for the remaining messages.  */
   if (to_code != NULL)
     {
@@ -390,11 +415,20 @@ domain \"%s\" in input file '%s' doesn't contain a header entry with a charset s
         error (EXIT_FAILURE, 0,
                _("target charset \"%s\" is not a portable encoding name."),
                to_code);
+      /* Test whether the control characters required for escaping file names
+         with spaces are present in the target encoding.  */
+      if (has_filenames_with_spaces
+          && !(canon_to_code == po_charset_utf8
+               || strcmp (canon_to_code, "GB18030") == 0))
+        error (EXIT_FAILURE, 0,
+               _("Cannot write the control characters that protect file names with spaces in the %s encoding"),
+               canon_to_code);
     }
   else
     {
       /* No target encoding was specified.  Test whether the messages are
-         all in a single encoding.  If so, conversion is not needed.  */
+         all in a single encoding.  If so and if !has_filenames_with_spaces,
+         conversion is not needed.  */
       const char *first = NULL;
       const char *second = NULL;
       bool with_ASCII = false;
@@ -453,6 +487,22 @@ To select a different output encoding, use the --to-code option.\n\
 "), first, second));
           canon_to_code = po_charset_utf8;
         }
+      else if (has_filenames_with_spaces)
+        {
+          /* A conversion is needed.  Warn the user since he hasn't asked
+             for it and might be surprised.  */
+          if (first != NULL
+              && (first == po_charset_utf8 || strcmp (first, "GB18030") == 0))
+            canon_to_code = first;
+          else
+            canon_to_code = po_charset_utf8;
+          multiline_warning (xasprintf (_("warning: ")),
+                             xasprintf (_("\
+Input files contain messages referenced in file names with spaces.\n\
+Converting the output to %s.\n\
+"),
+                                        canon_to_code));
+        }
       else if (first != NULL && with_ASCII && all_ASCII_compatible)
         {
           /* The conversion is a no-op conversion.  Don't warn the user,
@@ -467,7 +517,7 @@ To select a different output encoding, use the --to-code option.\n\
         }
     }
 
-  /* Now convert the remaining messages to to_code.  */
+  /* Now convert the remaining messages to canon_to_code.  */
   if (canon_to_code != NULL)
     for (n = 0; n < nfiles; n++)
       {
@@ -535,6 +585,8 @@ UTF-8 encoded from the beginning, i.e. already in your source code files.\n"),
                     tmp->is_format[i] = mp->is_format[i];
                   tmp->range = mp->range;
                   tmp->do_wrap = mp->do_wrap;
+                  for (i = 0; i < NSYNTAXCHECKS; i++)
+                    tmp->do_syntax_check[i] = mp->do_syntax_check[i];
                   tmp->prev_msgctxt = mp->prev_msgctxt;
                   tmp->prev_msgid = mp->prev_msgid;
                   tmp->prev_msgid_plural = mp->prev_msgid_plural;
@@ -583,6 +635,9 @@ UTF-8 encoded from the beginning, i.e. already in your source code files.\n"),
                     }
                   if (tmp->do_wrap == undecided)
                     tmp->do_wrap = mp->do_wrap;
+                  for (i = 0; i < NSYNTAXCHECKS; i++)
+                    if (tmp->do_syntax_check[i] == undecided)
+                      tmp->do_syntax_check[i] = mp->do_syntax_check[i];
                   tmp->obsolete = false;
                 }
               else
@@ -635,6 +690,12 @@ UTF-8 encoded from the beginning, i.e. already in your source code files.\n"),
                     }
                   if (mp->do_wrap == no)
                     tmp->do_wrap = no;
+                  for (i = 0; i < NSYNTAXCHECKS; i++)
+                    if (mp->do_syntax_check[i] == yes)
+                      tmp->do_syntax_check[i] = yes;
+                    else if (mp->do_syntax_check[i] == no
+                             && tmp->do_syntax_check[i] == undecided)
+                      tmp->do_syntax_check[i] = no;
                   /* Don't fill tmp->prev_msgid in this case.  */
                   if (!mp->obsolete)
                     tmp->obsolete = false;

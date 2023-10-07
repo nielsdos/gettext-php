@@ -1,31 +1,36 @@
 #! /bin/sh
+. "${srcdir=.}/init.sh"; path_prepend_ . ../src
 
 # Test of gettext facilities in the C# language.
 # Assumes an fr_FR locale is installed.
-# Assumes the following packages are installed: pnet, pnetlib.
+# Assumes the following packages are installed: mono, mcs.
 
-# Note: This test fails with mono-0.28 because the CultureInfo.Parent pointers
-# are wrong for locales containing a language and a territory. This is fixed
-# in mono-0.29.
-
-tmpfiles=""
-trap 'rm -fr $tmpfiles' 1 2 3 15
+# Note: This test fails when a GNU gettext version < 0.17 is installed with
+# the same --prefix as mcs. mcs apparently searches ${prefix}/lib before
+# searching the directory specified on the command line:
+#   $ mcs -out:program.exe -lib:../../gettext-runtime/intl-csharp -reference:GNU.Gettext program.cs
+#   program.cs(17,45): error CS0117: `GNU.Gettext.GettextResourceManager' does not contain a definition for `GetParticularPluralString'
+#   /usr/local/lib/GNU.Gettext.dll (Location of the symbol related to previous error)
+#   program.cs(18,45): error CS0117: `GNU.Gettext.GettextResourceManager' does not contain a definition for `GetParticularString'
+#   /usr/local/lib/GNU.Gettext.dll (Location of the symbol related to previous error)
+#   Compilation failed: 2 error(s), 0 warnings
+# The workaround is to install GNU gettext with the same --prefix, despite
+# the test failure, and run "make check" afterwards.
 
 # Test whether we can build and test C# programs.
 test "${CSHARP_CHOICE}" != no || {
   echo "Skipping test: configured with --disable-csharp"
-  exit 77
+  Exit 77
 }
 test "${BUILDCSHARP}" = yes || {
   echo "Skipping test: C# compiler not found"
-  exit 77
+  Exit 77
 }
 test "${TESTCSHARP}" = yes || {
   echo "Skipping test: C# engine not found"
-  exit 77
+  Exit 77
 }
 
-tmpfiles="$tmpfiles program.cs"
 cat <<\EOF > program.cs
 using System;
 using GNU.Gettext;
@@ -49,20 +54,14 @@ class Program {
 }
 EOF
 
-tmpfiles="$tmpfiles l-csharp"
-test -d l-csharp || mkdir l-csharp
-: ${CSHARPCOMP="/bin/sh ../csharpcomp.sh"}
-${CSHARPCOMP} -o l-csharp/program.exe -L ../../gettext-runtime/intl-csharp -l GNU.Gettext program.cs || exit 1
+: ${CSHARPCOMP="/bin/sh ../../csharpcomp.sh"}
+${CSHARPCOMP} -o program.exe -L ../../../gettext-runtime/intl-csharp -l GNU.Gettext program.cs || Exit 1
 
-tmpfiles="$tmpfiles l-csharp-prog.tmp l-csharp-prog.pot"
 : ${XGETTEXT=xgettext}
-${XGETTEXT} -o l-csharp-prog.tmp --omit-header --no-location program.cs
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
-LC_ALL=C tr -d '\r' < l-csharp-prog.tmp > l-csharp-prog.pot
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+${XGETTEXT} -o prog.tmp --omit-header --no-location program.cs || Exit 1
+LC_ALL=C tr -d '\r' < prog.tmp > prog.pot || Exit 1
 
-tmpfiles="$tmpfiles l-csharp-prog.ok"
-cat <<EOF > l-csharp-prog.ok
+cat <<EOF > prog.ok
 msgid "'Your command, please?', asked the waiter."
 msgstr ""
 
@@ -90,10 +89,9 @@ msgstr ""
 EOF
 
 : ${DIFF=diff}
-${DIFF} l-csharp-prog.ok l-csharp-prog.pot || exit 1
+${DIFF} prog.ok prog.pot || Exit 1
 
-tmpfiles="$tmpfiles l-csharp-fr.po"
-cat <<\EOF > l-csharp-fr.po
+cat <<\EOF > fr.po
 msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=ISO-8859-1\n"
@@ -129,38 +127,34 @@ msgid "{0} is replaced by {1}."
 msgstr "Le nouveau {1} remplace le vieux {0}."
 EOF
 
-tmpfiles="$tmpfiles l-csharp-fr.po.tmp l-csharp-fr.po.new"
 : ${MSGMERGE=msgmerge}
-${MSGMERGE} -q -o l-csharp-fr.po.tmp l-csharp-fr.po l-csharp-prog.pot
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
-LC_ALL=C tr -d '\r' < l-csharp-fr.po.tmp > l-csharp-fr.po.new
-test $? = 0 || { rm -fr $tmpfiles; exit 1; }
+${MSGMERGE} -q -o fr.po.tmp fr.po prog.pot || Exit 1
+LC_ALL=C tr -d '\r' < fr.po.tmp > fr.po.new || Exit 1
 
 : ${DIFF=diff}
-${DIFF} l-csharp-fr.po l-csharp-fr.po.new || exit 1
+${DIFF} fr.po fr.po.new || Exit 1
 
 : ${MSGFMT=msgfmt}
-GETTEXTCSHARPLIBDIR=../../gettext-runtime/intl-csharp \
-${MSGFMT} --csharp -d l-csharp -r prog -l fr l-csharp-fr.po || exit 1
-exit 0
+GETTEXTCSHARPLIBDIR=../../../gettext-runtime/intl-csharp \
+${MSGFMT} --csharp -d . -r prog -l fr fr.po || Exit 1
 
 # Test which of the fr_FR locales are installed.
 : ${LOCALE_FR=fr_FR}
 : ${LOCALE_FR_UTF8=fr_FR.UTF-8}
 if test $LOCALE_FR != none; then
-  LC_ALL=$LOCALE_FR ./testlocale
+  LC_ALL=$LOCALE_FR ../testlocale
   case $? in
     0) ;;
     77) LOCALE_FR=none;;
-    *) exit 1;;
+    *) Exit 1;;
   esac
 fi
 if test $LOCALE_FR_UTF8 != none; then
-  LC_ALL=$LOCALE_FR_UTF8 ./testlocale
+  LC_ALL=$LOCALE_FR_UTF8 ../testlocale
   case $? in
     0) ;;
     77) LOCALE_FR_UTF8=none;;
-    *) exit 1;;
+    *) Exit 1;;
   esac
 fi
 if test $LOCALE_FR = none && test $LOCALE_FR_UTF8 = none; then
@@ -169,19 +163,18 @@ if test $LOCALE_FR = none && test $LOCALE_FR_UTF8 = none; then
   else
     echo "Skipping test: no french locale is supported"
   fi
-  rm -fr $tmpfiles; exit 77
+  Exit 77
 fi
 
-tmpfiles="$tmpfiles l-csharp-prog.ok l-csharp-prog.oku l-csharp-prog.out"
 : ${DIFF=diff}
-cat <<\EOF > l-csharp-prog.ok
+cat <<\EOF > prog.ok
 «Votre commande, s'il vous plait», dit le garçon.
 2 morceaux de gateau
 EUR remplace FF.
 2 morceaux de gateau succulent
 Le nouveau EUR remplace le vieux FF.
 EOF
-cat <<\EOF > l-csharp-prog.oku
+cat <<\EOF > prog.oku
 Â«Votre commande, s'il vous plaitÂ», dit le garÃ§on.
 2 morceaux de gateau
 EUR remplace FF.
@@ -191,16 +184,23 @@ EOF
 
 : ${LOCALE_FR=fr_FR}
 : ${LOCALE_FR_UTF8=fr_FR.UTF-8}
-: ${CSHARPEXEC="/bin/sh ../csharpexec.sh"}
+: ${CSHARPEXEC="/bin/sh ../../csharpexec.sh"}
 if test $LOCALE_FR != none; then
-  LANGUAGE= LC_ALL=$LOCALE_FR ${CSHARPEXEC} -L ../../gettext-runtime/intl-csharp l-csharp/program.exe 2 > l-csharp-prog.out || exit 1
-  ${DIFF} l-csharp-prog.ok l-csharp-prog.out || exit 1
+  # On Mac OS X, with mono 4.2.3, this test would fail, because the Console's
+  # output encoding is System.Text.Encoding.Default, and this is UTF-8 even
+  # in the fr_FR.ISO8859-1 locale. System.Text.Encoding.Default is defined
+  # through InternalCodePage(), which uses g_get_charset(), which uses either
+  # locale_charset() or nl_langinfo(CODESET) [which is "ISO8859-1" in this case]
+  # or "UTF-8" - depending on platform or build configuration. So, allow the
+  # expected result in UTF-8 encoding here too.
+  prepare_locale_ fr $LOCALE_FR
+  LANGUAGE= LC_ALL=$LOCALE_FR ${CSHARPEXEC} -L ../../../gettext-runtime/intl-csharp program.exe 2 > prog.out || Exit 1
+  ${DIFF} prog.oku prog.out >/dev/null || ${DIFF} prog.ok prog.out || Exit 1
 fi
 if test $LOCALE_FR_UTF8 != none; then
-  LANGUAGE= LC_ALL=$LOCALE_FR_UTF8 ${CSHARPEXEC} -L ../../gettext-runtime/intl-csharp l-csharp/program.exe 2 > l-csharp-prog.out || exit 1
-  ${DIFF} l-csharp-prog.oku l-csharp-prog.out || exit 1
+  prepare_locale_ fr $LOCALE_FR_UTF8
+  LANGUAGE= LC_ALL=$LOCALE_FR_UTF8 ${CSHARPEXEC} -L ../../../gettext-runtime/intl-csharp program.exe 2 > prog.out || Exit 1
+  ${DIFF} prog.oku prog.out || Exit 1
 fi
 
-rm -fr $tmpfiles
-
-exit 0
+Exit 0

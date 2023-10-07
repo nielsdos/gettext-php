@@ -1,5 +1,5 @@
 /* xgettext Tcl backend.
-   Copyright (C) 2002-2003, 2005-2009 Free Software Foundation, Inc.
+   Copyright (C) 2002-2003, 2005-2009, 2013, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <haible@clisp.cons.org>, 2002.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -31,11 +31,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "attribute.h"
 #include "message.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-encoding.h"
+#include "xg-mixed-string.h"
+#include "xg-arglist-context.h"
+#include "xg-arglist-callshape.h"
+#include "xg-arglist-parser.h"
+#include "xg-message.h"
 #include "error.h"
+#include "error-progname.h"
 #include "xalloc.h"
-#include "hash.h"
+#include "mem-hash-map.h"
 #include "c-ctype.h"
 #include "po-charset.h"
 #include "unistr.h"
@@ -46,7 +55,8 @@
 #define SIZEOF(a) (sizeof(a) / sizeof(a[0]))
 
 
-/* The Tcl syntax is defined in the Tcl.n manual page.
+/* The Tcl syntax is defined in the Tcl.n manual page, see
+   https://www.tcl-lang.org/man/tcl8.6/TclCmd/Tcl.htm .
    Summary of Tcl syntax:
    Like sh syntax, except that `...` is replaced with [...]. In detail:
    - In a preprocessing pass, backslash-newline-anywhitespace is replaced
@@ -60,7 +70,7 @@
    - The list of resulting words is split into commands by semicolon and
      newline.
    - '#' at the beginning of a command introduces a comment until end of line.
-   The parser is implemented in tcl8.3.3/generic/tclParse.c.  */
+   The parser is implemented in tcl8.6/generic/tclParse.c.  */
 
 
 /* ====================== Keyword set customization.  ====================== */
@@ -127,13 +137,6 @@ init_flag_table_tcl ()
 
 /* ======================== Reading of characters.  ======================== */
 
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
-
 /* The input file stream.  */
 static FILE *fp;
 
@@ -147,8 +150,8 @@ do_getc ()
   if (c == EOF)
     {
       if (ferror (fp))
-        error (EXIT_FAILURE, errno, _("\
-error while reading \"%s\""), real_file_name);
+        error (EXIT_FAILURE, errno,
+               _("error while reading \"%s\""), real_file_name);
     }
   else if (c == '\n')
    line_number++;
@@ -172,7 +175,7 @@ do_ungetc (int c)
 /* An int that becomes a space when casted to 'unsigned char'.  */
 #define BS_NL (UCHAR_MAX + 1 + ' ')
 
-static int phase1_pushback[1];
+static int phase1_pushback[5];
 static int phase1_pushback_length;
 
 static int
@@ -220,7 +223,7 @@ phase1_ungetc (int c)
     case '\n':
     case BS_NL:
       --line_number;
-      /* FALLTHROUGH */
+      FALLTHROUGH;
 
     default:
       if (phase1_pushback_length == SIZEOF (phase1_pushback))
@@ -461,8 +464,16 @@ string_of_word (const struct word *wp)
 static flag_context_list_table_ty *flag_context_list_table;
 
 
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depths.  */
+static int bracket_nesting_depth;
+static int brace_nesting_depth;
+
+
 /* Read an escape sequence.  The value is an ISO-8859-1 character (in the
-   range 0x00..0xff) or a Unicode character (in the range 0x0000..0xffff).  */
+   range 0x00..0xff) or a Unicode character (in the range 0x0000..0x10FFFF).  */
 static int
 do_getc_escaped ()
 {
@@ -489,14 +500,17 @@ do_getc_escaped ()
       return '\v';
     case 'x':
       {
-        int n = 0;
+        unsigned int n = 0;
         unsigned int i;
 
-        for (i = 0;; i++)
+        for (i = 0; i < 2; i++)
           {
             c = phase1_getc ();
             if (c == EOF || !c_isxdigit ((unsigned char) c))
-              break;
+              {
+                phase1_ungetc (c);
+                break;
+              }
 
             if (c >= '0' && c <= '9')
               n = (n << 4) + (c - '0');
@@ -505,18 +519,40 @@ do_getc_escaped ()
             else if (c >= 'a' && c <= 'f')
               n = (n << 4) + (c - 'a' + 10);
           }
-        phase1_ungetc (c);
         return (i > 0 ? (unsigned char) n : 'x');
       }
     case 'u':
       {
-        int n = 0;
+        unsigned int n = 0;
         unsigned int i;
 
         for (i = 0; i < 4; i++)
           {
             c = phase1_getc ();
             if (c == EOF || !c_isxdigit ((unsigned char) c))
+              {
+                phase1_ungetc (c);
+                break;
+              }
+
+            if (c >= '0' && c <= '9')
+              n = (n << 4) + (c - '0');
+            else if (c >= 'A' && c <= 'F')
+              n = (n << 4) + (c - 'A' + 10);
+            else if (c >= 'a' && c <= 'f')
+              n = (n << 4) + (c - 'a' + 10);
+          }
+        return (i > 0 ? n : 'u');
+      }
+    case 'U':
+      {
+        unsigned int n = 0;
+        unsigned int i;
+
+        for (i = 0; i < 8; i++)
+          {
+            c = phase1_getc ();
+            if (c == EOF || !c_isxdigit ((unsigned char) c) || n >= 0x11000)
               {
                 phase1_ungetc (c);
                 break;
@@ -559,6 +595,59 @@ do_getc_escaped ()
     default:
       /* Note: If c is non-ASCII, Tcl's behaviour is undefined here.  */
       return (unsigned char) c;
+    }
+}
+
+/* Read an escape sequence for a low surrogate Unicode character.
+   The value is in the range 0xDC00..0xDFFF.
+   Return -1 when none was seen.  */
+static int
+do_getc_escaped_low_surrogate ()
+{
+  int c;
+
+  c = phase1_getc ();
+  switch (c)
+    {
+    case 'u':
+      {
+        unsigned char buf[4];
+        unsigned int n = 0;
+        unsigned int i;
+
+        for (i = 0; i < 4; i++)
+          {
+            c = phase1_getc ();
+            if (c == EOF || !c_isxdigit ((unsigned char) c))
+              {
+                phase1_ungetc (c);
+                while (i > 0)
+                  phase1_ungetc (buf[--i]);
+                phase1_ungetc ('u');
+                return -1;
+              }
+            buf[i] = c;
+
+            if (c >= '0' && c <= '9')
+              n = (n << 4) + (c - '0');
+            else if (c >= 'A' && c <= 'F')
+              n = (n << 4) + (c - 'A' + 10);
+            else if (c >= 'a' && c <= 'f')
+              n = (n << 4) + (c - 'a' + 10);
+          }
+        if (n >= 0xdc00 && n <= 0xdfff)
+          return n;
+        else
+          {
+            while (i > 0)
+              phase1_ungetc (buf[--i]);
+            phase1_ungetc ('u');
+            return -1;
+          }
+      }
+    default:
+      phase1_ungetc (c);
+      return -1;
     }
 }
 
@@ -677,26 +766,60 @@ accumulate_word (struct word *wp, enum terminator looking_for,
         }
       else if (c == '[')
         {
+          if (++bracket_nesting_depth > MAX_NESTING_DEPTH)
+            {
+              error_with_progname = false;
+              error (EXIT_FAILURE, 0, _("%s:%d: error: too many open brackets"),
+                     logical_file_name, line_number);
+            }
           read_command_list (']', context);
+          bracket_nesting_depth--;
           wp->type = t_other;
         }
       else if (c == '\\')
         {
-          unsigned int uc;
-          unsigned char utf8buf[6];
-          int count;
-          int i;
-
-          uc = do_getc_escaped ();
-          assert (uc < 0x10000);
-          count = u8_uctomb (utf8buf, uc, 6);
-          assert (count > 0);
-          if (wp->type == t_string)
-            for (i = 0; i < count; i++)
-              {
-                grow_token (wp->token);
-                wp->token->chars[wp->token->charcount++] = utf8buf[i];
-              }
+          unsigned int uc = do_getc_escaped ();
+          assert (uc < 0x110000);
+          if (uc >= 0xd800 && uc <= 0xdfff)
+            {
+              if (uc < 0xdc00)
+                {
+                  /* Saw a high surrogate Unicode character.
+                     Is it followed by a low surrogate Unicode character?  */
+                  c = phase2_getc ();
+                  if (c == '\\')
+                    {
+                      int uc2 = do_getc_escaped_low_surrogate ();
+                      if (uc2 >= 0)
+                        {
+                          /* Saw a low surrogate Unicode character.  */
+                          assert (uc2 >= 0xdc00 && uc2 <= 0xdfff);
+                          uc = 0x10000 + ((uc - 0xd800) << 10) + (uc2 - 0xdc00);
+                          goto saw_unicode_escape;
+                        }
+                    }
+                  phase2_ungetc (c);
+                }
+              error_with_progname = false;
+              error (0, 0, _("%s:%d: warning: invalid Unicode character"),
+                     logical_file_name, line_number);
+              error_with_progname = true;
+              goto done_escape;
+            }
+         saw_unicode_escape:
+          {
+            unsigned char utf8buf[6];
+            int count = u8_uctomb (utf8buf, uc, 6);
+            int i;
+            assert (count > 0);
+            if (wp->type == t_string)
+              for (i = 0; i < count; i++)
+                {
+                  grow_token (wp->token);
+                  wp->token->chars[wp->token->charcount++] = utf8buf[i];
+                }
+          }
+         done_escape: ;
         }
       else
         {
@@ -769,7 +892,14 @@ read_word (struct word *wp, int looking_for, flag_context_ty context)
       previous_depth = phase2_push () - 1;
 
       /* Interpret it as a command list.  */
+      if (++brace_nesting_depth > MAX_NESTING_DEPTH)
+        {
+          error_with_progname = false;
+          error (EXIT_FAILURE, 0, _("%s:%d: error: too many open braces"),
+                 logical_file_name, line_number);
+        }
       terminator = read_command_list ('\0', null_context);
+      brace_nesting_depth--;
 
       if (terminator == t_brace)
         phase2_pop (previous_depth);
@@ -888,9 +1018,9 @@ read_command (int looking_for, flag_context_ty outer_context)
 
                 pos.file_name = logical_file_name;
                 pos.line_number = inner.line_number_at_start;
-                remember_a_message (mlp, NULL, string_of_word (&inner),
-                                    inner_context, &pos,
-                                    NULL, savable_comment);
+                remember_a_message (mlp, NULL, string_of_word (&inner), false,
+                                    false, inner_context, &pos,
+                                    NULL, savable_comment, false);
               }
           }
 
@@ -931,12 +1061,19 @@ read_command (int looking_for, flag_context_ty outer_context)
           {
             /* These are the argument positions.  */
             if (argparser != NULL && inner.type == t_string)
-              arglist_parser_remember (argparser, arg,
-                                       string_of_word (&inner),
-                                       inner_context,
-                                       logical_file_name,
-                                       inner.line_number_at_start,
-                                       savable_comment);
+              {
+                char *s = string_of_word (&inner);
+                mixed_string_ty *ms =
+                  mixed_string_alloc_simple (s, lc_string,
+                                             logical_file_name,
+                                             inner.line_number_at_start);
+                free (s);
+                arglist_parser_remember (argparser, arg, ms,
+                                         inner_context,
+                                         logical_file_name,
+                                         inner.line_number_at_start,
+                                         savable_comment, false);
+              }
           }
 
         free_word (&inner);
@@ -979,6 +1116,9 @@ extract_tcl (FILE *f,
   logical_file_name = xstrdup (logical_filename);
   line_number = 1;
 
+  phase1_pushback_length = 0;
+  phase2_pushback_length = 0;
+
   /* Initially, no brace is open.  */
   brace_depth = 1000000;
 
@@ -986,6 +1126,8 @@ extract_tcl (FILE *f,
   last_non_comment_line = -1;
 
   flag_context_list_table = flag_table;
+  bracket_nesting_depth = 0;
+  brace_nesting_depth = 0;
 
   init_keywords ();
 

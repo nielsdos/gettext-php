@@ -1,5 +1,6 @@
 /* Pattern Matchers for Regular Expressions.
-   Copyright (C) 1992, 1998, 2000, 2005-2006, 2010 Free Software Foundation, Inc.
+   Copyright (C) 1992, 1998, 2000, 2005-2006, 2010, 2013 Free Software
+   Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -12,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -106,7 +107,7 @@ compile (const char *pattern, size_t pattern_size,
 
         if ((err = re_compile_pattern (motif, len,
                                        &cregex->patterns[cregex->pcount].regexbuf)) != NULL)
-          error (exit_failure, 0, err);
+          error (exit_failure, 0, "%s", err);
         cregex->pcount++;
 
         motif = sep;

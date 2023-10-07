@@ -1,5 +1,5 @@
 /* Reading PO files.
-   Copyright (C) 1995-1998, 2000-2003, 2005-2006, 2008-2009 Free Software Foundation, Inc.
+   Copyright (C) 1995-1998, 2000-2003, 2005-2006, 2008-2009, 2014-2016, 2023 Free Software Foundation, Inc.
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -105,6 +105,8 @@ default_constructor (abstract_catalog_reader_ty *that)
   this->range.min = -1;
   this->range.max = -1;
   this->do_wrap = undecided;
+  for (i = 0; i < NSYNTAXCHECKS; i++)
+    this->do_syntax_check[i] = undecided;
 }
 
 
@@ -112,6 +114,7 @@ void
 default_destructor (abstract_catalog_reader_ty *that)
 {
   default_catalog_reader_ty *this = (default_catalog_reader_ty *) that;
+  size_t j;
 
   /* Do not free this->mdlp and this->mlp.  */
   if (this->handle_comments)
@@ -121,24 +124,19 @@ default_destructor (abstract_catalog_reader_ty *that)
       if (this->comment_dot != NULL)
         string_list_free (this->comment_dot);
     }
-  if (this->handle_filepos_comments)
-    {
-      size_t j;
 
-      for (j = 0; j < this->filepos_count; ++j)
-        free (this->filepos[j].file_name);
-      if (this->filepos != NULL)
-        free (this->filepos);
-    }
+  for (j = 0; j < this->filepos_count; ++j)
+    free ((char *) this->filepos[j].file_name);
+  if (this->filepos != NULL)
+    free (this->filepos);
 }
 
 
 void
 default_parse_brief (abstract_catalog_reader_ty *that)
 {
-  /* We need to parse comments, because even if this->handle_comments and
-     this->handle_filepos_comments are false, we need to know which messages
-     are fuzzy.  */
+  /* We need to parse comments, because even if this->handle_comments
+     is false, we need to know which messages are fuzzy.  */
   po_lex_pass_comments (true);
 }
 
@@ -164,21 +162,20 @@ default_copy_comment_state (default_catalog_reader_ty *this, message_ty *mp)
         for (j = 0; j < this->comment_dot->nitems; ++j)
           message_comment_dot_append (mp, this->comment_dot->item[j]);
     }
-  if (this->handle_filepos_comments)
+  for (j = 0; j < this->filepos_count; ++j)
     {
-      for (j = 0; j < this->filepos_count; ++j)
-        {
-          lex_pos_ty *pp;
+      lex_pos_ty *pp;
 
-          pp = &this->filepos[j];
-          message_comment_filepos (mp, pp->file_name, pp->line_number);
-        }
+      pp = &this->filepos[j];
+      message_comment_filepos (mp, pp->file_name, pp->line_number);
     }
   mp->is_fuzzy = this->is_fuzzy;
   for (i = 0; i < NFORMATS; i++)
     mp->is_format[i] = this->is_format[i];
   mp->range = this->range;
   mp->do_wrap = this->do_wrap;
+  for (i = 0; i < NSYNTAXCHECKS; i++)
+    mp->do_syntax_check[i] = this->do_syntax_check[i];
 }
 
 
@@ -200,21 +197,20 @@ default_reset_comment_state (default_catalog_reader_ty *this)
           this->comment_dot = NULL;
         }
     }
-  if (this->handle_filepos_comments)
-    {
-      for (j = 0; j < this->filepos_count; ++j)
-        free (this->filepos[j].file_name);
-      if (this->filepos != NULL)
-        free (this->filepos);
-      this->filepos_count = 0;
-      this->filepos = NULL;
-    }
+  for (j = 0; j < this->filepos_count; ++j)
+    free ((char *) this->filepos[j].file_name);
+  if (this->filepos != NULL)
+    free (this->filepos);
+  this->filepos_count = 0;
+  this->filepos = NULL;
   this->is_fuzzy = false;
   for (i = 0; i < NFORMATS; i++)
     this->is_format[i] = undecided;
   this->range.min = -1;
   this->range.max = -1;
   this->do_wrap = undecided;
+  for (i = 0; i < NSYNTAXCHECKS; i++)
+    this->do_syntax_check[i] = undecided;
 }
 
 
@@ -291,18 +287,14 @@ default_comment_filepos (abstract_catalog_reader_ty *that,
                          const char *name, size_t line)
 {
   default_catalog_reader_ty *this = (default_catalog_reader_ty *) that;
+  size_t nbytes;
+  lex_pos_ty *pp;
 
-  if (this->handle_filepos_comments)
-    {
-      size_t nbytes;
-      lex_pos_ty *pp;
-
-      nbytes = (this->filepos_count + 1) * sizeof (this->filepos[0]);
-      this->filepos = xrealloc (this->filepos, nbytes);
-      pp = &this->filepos[this->filepos_count++];
-      pp->file_name = xstrdup (name);
-      pp->line_number = line;
-    }
+  nbytes = (this->filepos_count + 1) * sizeof (this->filepos[0]);
+  this->filepos = xrealloc (this->filepos, nbytes);
+  pp = &this->filepos[this->filepos_count++];
+  pp->file_name = xstrdup (name);
+  pp->line_number = line;
 }
 
 
@@ -313,7 +305,7 @@ default_comment_special (abstract_catalog_reader_ty *that, const char *s)
   default_catalog_reader_ty *this = (default_catalog_reader_ty *) that;
 
   po_parse_comment_special (s, &this->is_fuzzy, this->is_format, &this->range,
-                            &this->do_wrap);
+                            &this->do_wrap, this->do_syntax_check);
 }
 
 
@@ -404,6 +396,8 @@ default_add_message (default_catalog_reader_ty *this,
          appropriate.  */
       mp = message_alloc (msgctxt, msgid, msgid_plural, msgstr, msgstr_len,
                           msgstr_pos);
+      if (msgid_plural != NULL)
+        free (msgid_plural);
       mp->prev_msgctxt = prev_msgctxt;
       mp->prev_msgid = prev_msgid;
       mp->prev_msgid_plural = prev_msgid_plural;
@@ -458,10 +452,6 @@ default_catalog_reader_alloc (default_catalog_reader_class_ty *method_table)
 /* Exported functions.  */
 
 
-/* If nonzero, remember comments for file name and line number for each
-   msgid, if present in the reference input.  Defaults to true.  */
-int line_comment = 1;
-
 /* If false, duplicate msgids in the same domain and file generate an error.
    If true, such msgids are allowed; the caller should treat them
    appropriately.  Defaults to false.  */
@@ -478,7 +468,6 @@ read_catalog_stream (FILE *fp, const char *real_filename,
 
   pop = default_catalog_reader_alloc (&default_methods);
   pop->handle_comments = true;
-  pop->handle_filepos_comments = (line_comment != 0);
   pop->allow_domain_directives = true;
   pop->allow_duplicates = allow_duplicates;
   pop->allow_duplicates_if_same_msgstr = false;
@@ -490,7 +479,7 @@ read_catalog_stream (FILE *fp, const char *real_filename,
     pop->mdlp->encoding = po_charset_utf8;
   po_lex_pass_obsolete_entries (true);
   catalog_reader_parse ((abstract_catalog_reader_ty *) pop, fp, real_filename,
-                        logical_filename, input_syntax);
+                        logical_filename, false, input_syntax);
   mdlp = pop->mdlp;
   catalog_reader_free ((abstract_catalog_reader_ty *) pop);
   return mdlp;

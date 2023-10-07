@@ -1,5 +1,5 @@
-/* xgettext PO and JavaProperties backends.
-   Copyright (C) 1995-1998, 2000-2003, 2005-2006, 2008-2009 Free Software Foundation, Inc.
+/* xgettext PO, JavaProperties, and NXStringTable backends.
+   Copyright (C) 1995-1998, 2000-2003, 2005-2006, 2008-2009, 2014, 2018, 2020, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -37,6 +37,9 @@
 #include "read-po.h"
 #include "read-properties.h"
 #include "read-stringtable.h"
+#include "msgl-iconv.h"
+#include "msgl-ascii.h"
+#include "po-charset.h"
 #include "po-lex.h"
 #include "gettext.h"
 
@@ -155,7 +158,6 @@ extract (FILE *fp,
 
   pop = default_catalog_reader_alloc (&extract_methods);
   pop->handle_comments = true;
-  pop->handle_filepos_comments = (line_comment != 0);
   pop->allow_domain_directives = false;
   pop->allow_duplicates = false;
   pop->allow_duplicates_if_same_msgstr = true;
@@ -163,7 +165,7 @@ extract (FILE *fp,
   pop->mdlp = NULL;
   pop->mlp = mdlp->item[0]->messages;
   catalog_reader_parse ((abstract_catalog_reader_ty *) pop, fp, real_filename,
-                        logical_filename, input_syntax);
+                        logical_filename, true, input_syntax);
   catalog_reader_free ((abstract_catalog_reader_ty *) pop);
 
   if (header_charset != NULL)
@@ -202,9 +204,30 @@ extract (FILE *fp,
                     }
                 }
             }
+
+          if (!input_syntax->produces_utf8)
+            {
+              /* Convert the messages to UTF-8.
+                 finalize_header() expects this.  */
+              message_list_ty *mlp = mdlp->item[0]->messages;
+              iconv_message_list (mlp, NULL, po_charset_utf8, logical_filename);
+            }
         }
 
       free (header_charset);
+    }
+  else
+    {
+      if (!xgettext_omit_header && !input_syntax->produces_utf8)
+        {
+          /* finalize_header() expects the messages to be in UTF-8 encoding.
+             We don't know the encoding here; therefore we have to reject the
+             input if it is not entirely ASCII.  */
+          if (!is_ascii_msgdomain_list (mdlp))
+            error (EXIT_FAILURE, 0,
+                   _("%s: input file doesn't contain a header entry with a charset specification"),
+                   logical_filename);
+        }
     }
 }
 

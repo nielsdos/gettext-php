@@ -1,5 +1,5 @@
 /* Reading PO files, abstract class.
-   Copyright (C) 1995-1996, 1998, 2000-2003, 2005-2006, 2008-2009, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1996, 1998, 2000-2003, 2005-2006, 2008-2009, 2012, 2015, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _READ_CATALOG_ABSTRACT_H
 #define _READ_CATALOG_ABSTRACT_H
@@ -133,7 +133,8 @@ struct catalog_input_format
 {
   /* Parses the contents of FP, invoking the appropriate callbacks.  */
   void (*parse) (abstract_catalog_reader_ty *pop, FILE *fp,
-                 const char *real_filename, const char *logical_filename);
+                 const char *real_filename, const char *logical_filename,
+                 bool is_pot_role);
 
   /* Whether the parse function always produces messages encoded in UTF-8
      encoding.  */
@@ -154,6 +155,7 @@ extern void
        catalog_reader_parse (abstract_catalog_reader_ty *pop, FILE *fp,
                              const char *real_filename,
                              const char *logical_filename,
+                             bool is_pot_role,
                              catalog_input_format_ty input_syntax);
 
 /* Call the destructor and deallocate a abstract_catalog_reader_ty (or derived
@@ -184,7 +186,8 @@ extern void po_callback_comment_dispatcher (const char *s);
 extern void po_parse_comment_special (const char *s, bool *fuzzyp,
                                       enum is_format formatp[NFORMATS],
                                       struct argument_range *rangep,
-                                      enum is_wrap *wrapp);
+                                      enum is_wrap *wrapp,
+                                      enum is_syntax_check scp[NSYNTAXCHECKS]);
 
 
 #ifdef __cplusplus

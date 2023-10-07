@@ -1,5 +1,5 @@
 /* Pass translations to a subprocess.
-   Copyright (C) 2001-2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "noreturn.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "error.h"
@@ -38,7 +39,7 @@
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "message.h"
 #include "read-catalog.h"
 #include "read-po.h"
@@ -68,8 +69,10 @@ static const char *sub_name;
 static const char *sub_path;
 
 /* Argument list for the subprogram.  */
-static char **sub_argv;
+static const char **sub_argv;
 static int sub_argc;
+
+static bool newline;
 
 /* Maximum exit code encountered.  */
 static int exitcode;
@@ -80,6 +83,7 @@ static const struct option long_options[] =
   { "directory", required_argument, NULL, 'D' },
   { "help", no_argument, NULL, 'h' },
   { "input", required_argument, NULL, 'i' },
+  { "newline", no_argument, NULL, CHAR_MAX + 2 },
   { "properties-input", no_argument, NULL, 'P' },
   { "stringtable-input", no_argument, NULL, CHAR_MAX + 1 },
   { "version", no_argument, NULL, 'V' },
@@ -88,11 +92,7 @@ static const struct option long_options[] =
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 static void process_msgdomain_list (const msgdomain_list_ty *mdlp);
 
 
@@ -111,10 +111,8 @@ main (int argc, char **argv)
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -167,6 +165,10 @@ main (int argc, char **argv)
         input_syntax = &input_format_stringtable;
         break;
 
+      case CHAR_MAX + 2: /* --newline */
+        newline = true;
+        break;
+
       default:
         usage (EXIT_FAILURE);
         break;
@@ -175,14 +177,15 @@ main (int argc, char **argv)
   /* Version information is requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "2001-2010");
+              "2001-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Bruno Haible"));
       exit (EXIT_SUCCESS);
     }
@@ -198,7 +201,7 @@ There is NO WARRANTY, to the extent permitted by law.\n\
 
   /* Build argument list for the program.  */
   sub_argc = argc - optind;
-  sub_argv = XNMALLOC (sub_argc + 1, char *);
+  sub_argv = XNMALLOC (sub_argc + 1, const char *);
   for (i = 0; i < sub_argc; i++)
     sub_argv[i] = argv[optind + i];
   sub_argv[i] = NULL;
@@ -233,7 +236,7 @@ There is NO WARRANTY, to the extent permitted by law.\n\
       sub_path = find_in_path (sub_name);
 
       /* Finish argument list for the program.  */
-      sub_argv[0] = (char *) sub_path;
+      sub_argv[0] = sub_path;
     }
 
   exitcode = 0; /* = EXIT_SUCCESS */
@@ -274,6 +277,11 @@ null byte.  The output of \"msgexec 0\" is suitable as input for \"xargs -0\".\n
 "));
       printf ("\n");
       printf (_("\
+Command input:\n"));
+      printf (_("\
+  --newline                   add newline at the end of input\n"));
+      printf ("\n");
+      printf (_("\
 Mandatory arguments to long options are mandatory for short options too.\n"));
       printf ("\n");
       printf (_("\
@@ -299,12 +307,16 @@ Informative output:\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -328,6 +340,7 @@ nonintr_close (int fd)
 
   return retval;
 }
+#undef close
 #define close nonintr_close
 
 #endif
@@ -352,12 +365,13 @@ process_string (const message_ty *mp, const char *str, size_t len)
       int fd[1];
       void (*orig_sigpipe_handler)(int);
       int exitstatus;
+      char *newstr;
 
       /* Set environment variables for the subprocess.
          Note: These environment variables, especially MSGEXEC_MSGCTXT and
-         MSGEXEC_MSGCTXT, may contain non-ASCII characters.  The subprocess
+         MSGEXEC_MSGID, may contain non-ASCII characters.  The subprocess
          may not interpret these values correctly if the locale encoding is
-         different from the PO file's encoding.  We want about this situation,
+         different from the PO file's encoding.  We warned about this situation,
          above.
          On Unix, this problem is often harmless.  On Windows, however, - both
          native Windows and Cygwin - the values of environment variables *must*
@@ -370,23 +384,51 @@ process_string (const message_ty *mp, const char *str, size_t len)
       else
         unsetenv ("MSGEXEC_MSGCTXT");
       xsetenv ("MSGEXEC_MSGID", mp->msgid, 1);
+      if (mp->msgid_plural != NULL)
+        xsetenv ("MSGEXEC_MSGID_PLURAL", mp->msgid_plural, 1);
+      else
+        unsetenv ("MSGEXEC_MSGID_PLURAL");
       location = xasprintf ("%s:%ld", mp->pos.file_name,
                             (long) mp->pos.line_number);
       xsetenv ("MSGEXEC_LOCATION", location, 1);
       free (location);
+      if (mp->prev_msgctxt != NULL)
+        xsetenv ("MSGEXEC_PREV_MSGCTXT", mp->prev_msgctxt, 1);
+      else
+        unsetenv ("MSGEXEC_PREV_MSGCTXT");
+      if (mp->prev_msgid != NULL)
+        xsetenv ("MSGEXEC_PREV_MSGID", mp->prev_msgid, 1);
+      else
+        unsetenv ("MSGEXEC_PREV_MSGID");
+      if (mp->prev_msgid_plural != NULL)
+        xsetenv ("MSGEXEC_PREV_MSGID_PLURAL", mp->prev_msgid_plural, 1);
+      else
+        unsetenv ("MSGEXEC_PREV_MSGID_PLURAL");
 
       /* Open a pipe to a subprocess.  */
-      child = create_pipe_out (sub_name, sub_path, sub_argv, NULL, false, true,
-                               true, fd);
+      child = create_pipe_out (sub_name, sub_path, sub_argv, NULL,
+                               NULL, false, true, true, fd);
 
       /* Ignore SIGPIPE here.  We don't care if the subprocesses terminates
          successfully without having read all of the input that we feed it.  */
       orig_sigpipe_handler = signal (SIGPIPE, SIG_IGN);
 
-      if (full_write (fd[0], str, len) < len)
+      if (newline)
+        {
+          newstr = XNMALLOC (len + 1, char);
+          memcpy (newstr, str, len);
+          newstr[len++] = '\n';
+        }
+      else
+        newstr = (char *) str;
+
+      if (full_write (fd[0], newstr, len) < len)
         if (errno != EPIPE)
           error (EXIT_FAILURE, errno,
                  _("write to %s subprocess failed"), sub_name);
+
+      if (newstr != str)
+        free (newstr);
 
       close (fd[0]);
 
@@ -409,12 +451,22 @@ process_message (const message_ty *mp)
   const char *msgstr = mp->msgstr;
   size_t msgstr_len = mp->msgstr_len;
   const char *p;
+  size_t k;
 
   /* Process each NUL delimited substring separately.  */
-  for (p = msgstr; p < msgstr + msgstr_len; )
+  for (p = msgstr, k = 0; p < msgstr + msgstr_len; k++)
     {
       size_t length = strlen (p);
 
+      if (mp->msgid_plural != NULL)
+        {
+          char *plural_form_string = xasprintf ("%lu", (unsigned long) k);
+
+          xsetenv ("MSGEXEC_PLURAL_FORM", plural_form_string, 1);
+          free (plural_form_string);
+        }
+      else
+        unsetenv ("MSGEXEC_PLURAL_FORM");
       process_string (mp, p, length);
 
       p += length + 1;

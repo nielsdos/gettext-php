@@ -1,5 +1,5 @@
 /* GNU gettext - internationalization aids
-   Copyright (C) 1995-1998, 2000-2010, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1998, 2000-2010, 2012, 2014-2016, 2018-2023 Free Software Foundation, Inc.
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -27,14 +27,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 
+#include <textstyle.h>
+
+#include "noreturn.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "message.h"
 #include "read-catalog.h"
 #include "read-po.h"
@@ -44,7 +50,6 @@
 #include "write-po.h"
 #include "write-properties.h"
 #include "write-stringtable.h"
-#include "color.h"
 #include "format.h"
 #include "xalloc.h"
 #include "xmalloca.h"
@@ -84,6 +89,14 @@ static int force_po;
 /* Apply the .pot file to each of the domains in the PO file.  */
 static bool multi_domain_mode = false;
 
+/* Produce output for msgfmt, not for a translator.
+   msgfmt ignores
+     - untranslated messages,
+     - fuzzy messages, except the header entry,
+     - obsolete messages.
+   Therefore output for msgfmt does not need to include such messages.  */
+static bool for_msgfmt = false;
+
 /* Determines whether to use fuzzy matching.  */
 static bool use_fuzzy_matching = true;
 
@@ -107,12 +120,13 @@ static const char *backup_suffix_string;
 /* Long options.  */
 static const struct option long_options[] =
 {
-  { "add-location", no_argument, &line_comment, 1 },
+  { "add-location", optional_argument, NULL, 'n' },
   { "backup", required_argument, NULL, CHAR_MAX + 1 },
   { "color", optional_argument, NULL, CHAR_MAX + 9 },
-  { "compendium", required_argument, NULL, 'C', },
+  { "compendium", required_argument, NULL, 'C' },
   { "directory", required_argument, NULL, 'D' },
   { "escape", no_argument, NULL, 'E' },
+  { "for-msgfmt", no_argument, NULL, CHAR_MAX + 12 },
   { "force-po", no_argument, &force_po, 1 },
   { "help", no_argument, NULL, 'h' },
   { "indent", no_argument, NULL, 'i' },
@@ -120,7 +134,7 @@ static const struct option long_options[] =
   { "multi-domain", no_argument, NULL, 'm' },
   { "no-escape", no_argument, NULL, 'e' },
   { "no-fuzzy-matching", no_argument, NULL, 'N' },
-  { "no-location", no_argument, &line_comment, 0 },
+  { "no-location", no_argument, NULL, CHAR_MAX + 11 },
   { "no-wrap", no_argument, NULL, CHAR_MAX + 4 },
   { "output-file", required_argument, NULL, 'o' },
   { "previous", no_argument, NULL, CHAR_MAX + 7 },
@@ -138,7 +152,7 @@ static const struct option long_options[] =
   { "update", no_argument, NULL, 'U' },
   { "verbose", no_argument, NULL, 'v' },
   { "version", no_argument, NULL, 'V' },
-  { "width", required_argument, NULL, 'w', },
+  { "width", required_argument, NULL, 'w' },
   { NULL, 0, NULL, 0 }
 };
 
@@ -153,11 +167,7 @@ struct statistics
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 static void compendium (const char *filename);
 static void msgdomain_list_stablesort_by_obsolete (msgdomain_list_ty *mdlp);
 static msgdomain_list_ty *merge (const char *fn1, const char *fn2,
@@ -172,6 +182,7 @@ main (int argc, char **argv)
   bool do_help;
   bool do_version;
   char *output_file;
+  char *color;
   msgdomain_list_ty *def;
   msgdomain_list_ty *result;
   catalog_input_format_ty input_syntax = &input_format_po;
@@ -186,10 +197,8 @@ main (int argc, char **argv)
   quiet = false;
   gram_max_allowed_errors = UINT_MAX;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -203,8 +212,9 @@ main (int argc, char **argv)
   do_help = false;
   do_version = false;
   output_file = NULL;
+  color = NULL;
 
-  while ((opt = getopt_long (argc, argv, "C:D:eEFhimNo:pPqsUvVw:",
+  while ((opt = getopt_long (argc, argv, "C:D:eEFhimn:No:pPqsUvVw:",
                              long_options, NULL))
          != EOF)
     switch (opt)
@@ -242,6 +252,11 @@ main (int argc, char **argv)
 
       case 'm':
         multi_domain_mode = true;
+        break;
+
+      case 'n':
+        if (handle_filepos_comment_option (optarg))
+          usage (EXIT_FAILURE);
         break;
 
       case 'N':
@@ -325,10 +340,19 @@ main (int argc, char **argv)
       case CHAR_MAX + 9: /* --color */
         if (handle_color_option (optarg) || color_test_mode)
           usage (EXIT_FAILURE);
+        color = optarg;
         break;
 
       case CHAR_MAX + 10: /* --style */
         handle_style_option (optarg);
+        break;
+
+      case CHAR_MAX + 11: /* --no-location */
+        message_print_style_filepos (filepos_comment_none);
+        break;
+
+      case CHAR_MAX + 12: /* --for-msgfmt */
+        for_msgfmt = true;
         break;
 
       default:
@@ -339,14 +363,15 @@ main (int argc, char **argv)
   /* Version information is requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "1995-1998, 2000-2010");
+              "1995-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Peter Miller"));
       exit (EXIT_SUCCESS);
     }
@@ -375,6 +400,21 @@ There is NO WARRANTY, to the extent permitted by law.\n\
           error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
                  "--update", "--output-file");
         }
+      if (for_msgfmt)
+        {
+          error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
+                 "--update", "--for-msgfmt");
+        }
+      if (color != NULL)
+        {
+          error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
+                 "--update", "--color");
+        }
+      if (style_file_name != NULL)
+        {
+          error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
+                 "--update", "--style");
+        }
     }
   else
     {
@@ -392,13 +432,14 @@ There is NO WARRANTY, to the extent permitted by law.\n\
         }
     }
 
-  if (!line_comment && sort_by_filepos)
-    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
-           "--no-location", "--sort-by-file");
-
   if (sort_by_msgid && sort_by_filepos)
     error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
            "--sort-output", "--sort-by-file");
+
+  /* Warn when deprecated options are used.  */
+  if (sort_by_msgid)
+    error (EXIT_SUCCESS, 0, _("The option '%s' is deprecated."),
+           "--sort-output");
 
   /* In update mode, --properties-input implies --properties-output.  */
   if (update_mode && input_syntax == &input_format_properties)
@@ -406,6 +447,27 @@ There is NO WARRANTY, to the extent permitted by law.\n\
   /* In update mode, --stringtable-input implies --stringtable-output.  */
   if (update_mode && input_syntax == &input_format_stringtable)
     output_syntax = &output_format_stringtable;
+
+  if (for_msgfmt)
+    {
+      /* With --for-msgfmt, no fuzzy matching.  */
+      use_fuzzy_matching = false;
+
+      /* With --for-msgfmt, merging is fast, therefore no need for a progress
+         indicator.  */
+      quiet = true;
+
+      /* With --for-msgfmt, no need for comments.  */
+      message_print_style_comment (false);
+
+      /* With --for-msgfmt, no need for source location lines.  */
+      message_print_style_filepos (filepos_comment_none);
+    }
+
+  /* Initialize OpenMP.  */
+  #ifdef _OPENMP
+  openmp_init ();
+  #endif
 
   /* Merge the two files.  */
   result = merge (argv[optind], argv[optind + 1], input_syntax, &def);
@@ -460,8 +522,8 @@ There is NO WARRANTY, to the extent permitted by law.\n\
   else
     {
       /* Write the merged message list out.  */
-      msgdomain_list_print (result, output_file, output_syntax, force_po,
-                            false);
+      msgdomain_list_print (result, output_file, output_syntax,
+                            for_msgfmt || force_po, false);
     }
 
   exit (EXIT_SUCCESS);
@@ -548,6 +610,9 @@ Operation modifiers:\n"));
       printf (_("\
   -m, --multi-domain          apply ref.pot to each of the domains in def.po\n"));
       printf (_("\
+      --for-msgfmt            produce output for '%s', not for a translator\n"),
+              "msgfmt");
+      printf (_("\
   -N, --no-fuzzy-matching     do not use fuzzy matching\n"));
       printf (_("\
       --previous              keep previous msgids of translated messages\n"));
@@ -581,7 +646,7 @@ Output details:\n"));
       printf (_("\
       --no-location           suppress '#: filename:line' lines\n"));
       printf (_("\
-      --add-location          preserve '#: filename:line' lines (default)\n"));
+  -n, --add-location          preserve '#: filename:line' lines (default)\n"));
       printf (_("\
       --strict                strict Uniforum output style\n"));
       printf (_("\
@@ -594,7 +659,7 @@ Output details:\n"));
       --no-wrap               do not break long message lines, longer than\n\
                               the output page width, into several lines\n"));
       printf (_("\
-  -s, --sort-output           generate sorted output\n"));
+  -s, --sort-output           generate sorted output (deprecated)\n"));
       printf (_("\
   -F, --sort-by-file          sort output by file location\n"));
       printf ("\n");
@@ -609,12 +674,16 @@ Informative output:\n"));
       printf (_("\
   -q, --quiet, --silent       suppress progress indicators\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -905,7 +974,7 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
   const char *prev_msgid;
   const char *prev_msgid_plural;
   message_ty *result;
-  size_t j, i;
+  size_t j;
 
   /* Take the msgid from the reference.  When fuzzy matches are made,
      the definition will not be unique, but the reference will be -
@@ -955,7 +1024,6 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
       struct obstack pool;
       const char *cp;
       char *newp;
-      size_t len, cnt;
 
       /* Clear all fields.  */
       memset (header_fields, '\0', sizeof (header_fields));
@@ -968,6 +1036,8 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
         {
           const char *endp = strchr (cp, '\n');
           int terminated = endp != NULL;
+          size_t len;
+          size_t cnt;
 
           if (!terminated)
             {
@@ -1007,8 +1077,9 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
               char *extended =
                 (char *) obstack_alloc (&pool,
                                         header_fields[UNKNOWN].len + len + 1);
-              memcpy (extended, header_fields[UNKNOWN].string,
-                      header_fields[UNKNOWN].len);
+              if (header_fields[UNKNOWN].string)
+                memcpy (extended, header_fields[UNKNOWN].string,
+                        header_fields[UNKNOWN].len);
               memcpy (&extended[header_fields[UNKNOWN].len], cp, len);
               extended[header_fields[UNKNOWN].len + len] = '\0';
               header_fields[UNKNOWN].string = extended;
@@ -1185,14 +1256,19 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
       }
 
       /* Concatenate all the various fields.  */
-      len = 0;
-      for (cnt = 0; cnt < UNKNOWN; ++cnt)
-        if (header_fields[cnt].string != NULL)
-          len += known_fields[cnt].len + header_fields[cnt].len;
-      len += header_fields[UNKNOWN].len;
+      {
+        size_t len;
+        size_t cnt;
 
-      cp = newp = XNMALLOC (len + 1, char);
-      newp[len] = '\0';
+        len = 0;
+        for (cnt = 0; cnt < UNKNOWN; ++cnt)
+          if (header_fields[cnt].string != NULL)
+            len += known_fields[cnt].len + header_fields[cnt].len;
+        len += header_fields[UNKNOWN].len;
+
+        cp = newp = XNMALLOC (len + 1, char);
+        newp[len] = '\0';
+      }
 
 #define IF_FILLED(idx)                                                        \
       if (header_fields[idx].string)                                          \
@@ -1274,26 +1350,30 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
           : def->msgid_plural != NULL))
     result->is_fuzzy = true;
 
-  for (i = 0; i < NFORMATS; i++)
-    {
-      result->is_format[i] = ref->is_format[i];
+  {
+    size_t i;
 
-      /* If the reference message is marked as being a format specifier,
-         but the definition message is not, we check if the resulting
-         message would pass "msgfmt -c".  If yes, then all is fine.  If
-         not, we add a fuzzy marker, because
-         1. the message needs the translator's attention,
-         2. msgmerge must not transform a PO file which passes "msgfmt -c"
-            into a PO file which doesn't.  */
-      if (!result->is_fuzzy
-          && possible_format_p (ref->is_format[i])
-          && !possible_format_p (def->is_format[i])
-          && check_msgid_msgstr_format_i (ref->msgid, ref->msgid_plural,
-                                          msgstr, msgstr_len, i, ref->range,
-                                          distribution, silent_error_logger)
-             > 0)
-        result->is_fuzzy = true;
-    }
+    for (i = 0; i < NFORMATS; i++)
+      {
+        result->is_format[i] = ref->is_format[i];
+
+        /* If the reference message is marked as being a format specifier,
+           but the definition message is not, we check if the resulting
+           message would pass "msgfmt -c".  If yes, then all is fine.  If
+           not, we add a fuzzy marker, because
+           1. the message needs the translator's attention,
+           2. msgmerge must not transform a PO file which passes "msgfmt -c"
+              into a PO file which doesn't.  */
+        if (!result->is_fuzzy
+            && possible_format_p (ref->is_format[i])
+            && !possible_format_p (def->is_format[i])
+            && check_msgid_msgstr_format_i (ref->msgid, ref->msgid_plural,
+                                            msgstr, msgstr_len, i, ref->range,
+                                            distribution, silent_error_logger)
+               > 0)
+          result->is_fuzzy = true;
+      }
+  }
 
   result->range = ref->range;
   /* If the definition message was assuming a certain range, but the reference
@@ -1310,6 +1390,12 @@ message_merge (message_ty *def, message_ty *ref, bool force_fuzzy,
     result->is_fuzzy = true;
 
   result->do_wrap = ref->do_wrap;
+
+  {
+    size_t i;
+    for (i = 0; i < NSYNTAXCHECKS; i++)
+      result->do_syntax_check[i] = ref->do_syntax_check[i];
+  }
 
   /* Insert previous msgid, commented out with "#|".
      Do so only when --previous is specified, for backward compatibility.
@@ -1369,197 +1455,216 @@ match_domain (const char *fn1, const char *fn2,
               message_list_ty *resultmlp,
               struct statistics *stats, unsigned int *processed)
 {
-  message_ty *header_entry;
-  unsigned long int nplurals;
-  const struct expression *plural_expr;
-  char *untranslated_plural_msgstr;
-  struct plural_distribution distribution;
-  struct search_result { message_ty *found; bool fuzzy; } *search_results;
-  size_t j;
-
-  header_entry =
-    message_list_search (definitions_current_list (definitions), NULL, "");
-  extract_plural_expression (header_entry ? header_entry->msgstr : NULL,
-                             &plural_expr, &nplurals);
-  untranslated_plural_msgstr = XNMALLOC (nplurals, char);
-  memset (untranslated_plural_msgstr, '\0', nplurals);
-
-  /* Determine the plural distribution of the plural_expr formula.  */
   {
-    /* Disable error output temporarily.  */
-    void (*old_po_xerror) (int, const struct message_ty *, const char *, size_t,
-                           size_t, int, const char *)
-      = po_xerror;
-    po_xerror = silent_xerror;
+    unsigned long int nplurals;
+    char *untranslated_plural_msgstr;
+    struct plural_distribution distribution;
+    struct search_result { message_ty *found; bool fuzzy; } *search_results;
+    size_t j;
 
-    if (check_plural_eval (plural_expr, nplurals, header_entry,
-                           &distribution) > 0)
-      {
-        distribution.expr = NULL;
-        distribution.often = NULL;
-        distribution.often_length = 0;
-        distribution.histogram = NULL;
-      }
-
-    po_xerror = old_po_xerror;
-  }
-
-  /* Most of the time is spent in definitions_search_fuzzy.
-     Perform it in a separate loop that can be parallelized by an OpenMP
-     capable compiler.  */
-  search_results = XNMALLOC (refmlp->nitems, struct search_result);
-  {
-    long int nn = refmlp->nitems;
-    long int jj;
-
-    /* Tell the OpenMP capable compiler to distribute this loop across
-       several threads.  The schedule is dynamic, because for some messages
-       the loop body can be executed very quickly, whereas for others it takes
-       a long time.
-       Note: The Sun Workshop 6.2 C compiler does not allow a space between
-       '#' and 'pragma'.  */
-    #ifdef _OPENMP
-     #pragma omp parallel for schedule(dynamic)
-    #endif
-    for (jj = 0; jj < nn; jj++)
-      {
-        message_ty *refmsg = refmlp->item[jj];
-        message_ty *defmsg;
-
-        /* Because merging can take a while we print something to signal
-           we are not dead.  */
-        if (!quiet && verbosity_level <= 1 && *processed % DOT_FREQUENCY == 0)
-          fputc ('.', stderr);
-        #ifdef _OPENMP
-         #pragma omp atomic
-        #endif
-        (*processed)++;
-
-        /* See if it is in the other file.  */
-        defmsg =
-          definitions_search (definitions, refmsg->msgctxt, refmsg->msgid);
-        if (defmsg != NULL)
-          {
-            search_results[jj].found = defmsg;
-            search_results[jj].fuzzy = false;
-          }
-        else if (!is_header (refmsg)
-                 /* If the message was not defined at all, try to find a very
-                    similar message, it could be a typo, or the suggestion may
-                    help.  */
-                 && use_fuzzy_matching
-                 && ((defmsg =
-                        definitions_search_fuzzy (definitions,
-                                                  refmsg->msgctxt,
-                                                  refmsg->msgid)) != NULL))
-          {
-            search_results[jj].found = defmsg;
-            search_results[jj].fuzzy = true;
-          }
-        else
-          search_results[jj].found = NULL;
-      }
-  }
-
-  for (j = 0; j < refmlp->nitems; j++)
     {
-      message_ty *refmsg = refmlp->item[j];
+      message_ty *header_entry;
+      const struct expression *plural_expr;
 
-      /* See if it is in the other file.
-         This used definitions_search.  */
-      if (search_results[j].found != NULL && !search_results[j].fuzzy)
+      header_entry =
+        message_list_search (definitions_current_list (definitions), NULL, "");
+      extract_plural_expression (header_entry ? header_entry->msgstr : NULL,
+                                 &plural_expr, &nplurals);
+      untranslated_plural_msgstr = XNMALLOC (nplurals, char);
+      memset (untranslated_plural_msgstr, '\0', nplurals);
+
+      /* Determine the plural distribution of the plural_expr formula.  */
+      {
+        /* Disable error output temporarily.  */
+        void (*old_po_xerror) (int, const struct message_ty *, const char *, size_t,
+                               size_t, int, const char *)
+          = po_xerror;
+        po_xerror = silent_xerror;
+
+        if (check_plural_eval (plural_expr, nplurals, header_entry,
+                               &distribution) > 0)
+          {
+            distribution.expr = NULL;
+            distribution.often = NULL;
+            distribution.often_length = 0;
+            distribution.histogram = NULL;
+          }
+
+        po_xerror = old_po_xerror;
+      }
+    }
+
+    /* Most of the time is spent in definitions_search_fuzzy.
+       Perform it in a separate loop that can be parallelized by an OpenMP
+       capable compiler.  */
+    search_results = XNMALLOC (refmlp->nitems, struct search_result);
+    {
+      long int nn = refmlp->nitems;
+      long int jj;
+
+      /* Tell the OpenMP capable compiler to distribute this loop across
+         several threads.  The schedule is dynamic, because for some messages
+         the loop body can be executed very quickly, whereas for others it takes
+         a long time.
+         Note: The Sun Workshop 6.2 C compiler does not allow a space between
+         '#' and 'pragma'.  */
+      #ifdef _OPENMP
+       #pragma omp parallel for schedule(dynamic)
+      #endif
+      for (jj = 0; jj < nn; jj++)
         {
-          message_ty *defmsg = search_results[j].found;
-          /* Merge the reference with the definition: take the #. and
-             #: comments from the reference, take the # comments from
-             the definition, take the msgstr from the definition.  Add
-             this merged entry to the output message list.  */
-          message_ty *mp =
-            message_merge (defmsg, refmsg, false, &distribution);
+          message_ty *refmsg = refmlp->item[jj];
+          message_ty *defmsg;
 
-          message_list_append (resultmlp, mp);
+          /* Because merging can take a while we print something to signal
+             we are not dead.  */
+          if (!quiet && verbosity_level <= 1 && *processed % DOT_FREQUENCY == 0)
+            fputc ('.', stderr);
+          #ifdef _OPENMP
+           #pragma omp atomic
+          #endif
+          (*processed)++;
 
-          /* Remember that this message has been used, when we scan
-             later to see if anything was omitted.  */
-          defmsg->used = 1;
-          stats->merged++;
-        }
-      else if (!is_header (refmsg))
-        {
-          /* If the message was not defined at all, try to find a very
-             similar message, it could be a typo, or the suggestion may
-             help.  This search assumed use_fuzzy_matching and used
-             definitions_search_fuzzy.  */
-          if (search_results[j].found != NULL && search_results[j].fuzzy)
+          /* See if it is in the other file.  */
+          defmsg =
+            definitions_search (definitions, refmsg->msgctxt, refmsg->msgid);
+          if (defmsg != NULL)
             {
-              message_ty *defmsg = search_results[j].found;
-              message_ty *mp;
-
-              if (verbosity_level > 1)
-                {
-                  po_gram_error_at_line (&refmsg->pos, _("\
-this message is used but not defined..."));
-                  error_message_count--;
-                  po_gram_error_at_line (&defmsg->pos, _("\
-...but this definition is similar"));
-                }
-
-              /* Merge the reference with the definition: take the #. and
-                 #: comments from the reference, take the # comments from
-                 the definition, take the msgstr from the definition.  Add
-                 this merged entry to the output message list.  */
-              mp = message_merge (defmsg, refmsg, true, &distribution);
-
-              message_list_append (resultmlp, mp);
-
-              /* Remember that this message has been used, when we scan
-                 later to see if anything was omitted.  */
-              defmsg->used = 1;
-              stats->fuzzied++;
-              if (!quiet && verbosity_level <= 1)
-                /* Always print a dot if we handled a fuzzy match.  */
-                fputc ('.', stderr);
+              search_results[jj].found = defmsg;
+              search_results[jj].fuzzy = false;
+            }
+          else if (!is_header (refmsg)
+                   /* If the message was not defined at all, try to find a very
+                      similar message, it could be a typo, or the suggestion may
+                      help.  */
+                   && use_fuzzy_matching
+                   && ((defmsg =
+                          definitions_search_fuzzy (definitions,
+                                                    refmsg->msgctxt,
+                                                    refmsg->msgid)) != NULL))
+            {
+              search_results[jj].found = defmsg;
+              search_results[jj].fuzzy = true;
             }
           else
-            {
-              message_ty *mp;
-              bool is_untranslated;
-              const char *p;
-              const char *pend;
-
-              if (verbosity_level > 1)
-                po_gram_error_at_line (&refmsg->pos, _("\
-this message is used but not defined in %s"), fn1);
-
-              mp = message_copy (refmsg);
-
-              if (mp->msgid_plural != NULL)
-                {
-                  /* Test if mp is untranslated.  (It most likely is.)  */
-                  is_untranslated = true;
-                  for (p = mp->msgstr, pend = p + mp->msgstr_len; p < pend; p++)
-                    if (*p != '\0')
-                      {
-                        is_untranslated = false;
-                        break;
-                      }
-                  if (is_untranslated)
-                    {
-                      /* Change mp->msgstr_len consecutive empty strings into
-                         nplurals consecutive empty strings.  */
-                      if (nplurals > mp->msgstr_len)
-                        mp->msgstr = untranslated_plural_msgstr;
-                      mp->msgstr_len = nplurals;
-                    }
-                }
-
-              message_list_append (resultmlp, mp);
-              stats->missing++;
-            }
+            search_results[jj].found = NULL;
         }
     }
 
-  free (search_results);
+    for (j = 0; j < refmlp->nitems; j++)
+      {
+        message_ty *refmsg = refmlp->item[j];
+
+        /* See if it is in the other file.
+           This used definitions_search.  */
+        if (search_results[j].found != NULL && !search_results[j].fuzzy)
+          {
+            message_ty *defmsg = search_results[j].found;
+            /* Merge the reference with the definition: take the #. and
+               #: comments from the reference, take the # comments from
+               the definition, take the msgstr from the definition.  Add
+               this merged entry to the output message list.  */
+            message_ty *mp =
+              message_merge (defmsg, refmsg, false, &distribution);
+
+            /* When producing output for msgfmt, omit messages that are
+               untranslated or fuzzy (except the header entry).  */
+            if (!(for_msgfmt
+                  && (mp->msgstr[0] == '\0' /* untranslated? */
+                      || (mp->is_fuzzy && !is_header (mp))))) /* fuzzy? */
+              {
+                message_list_append (resultmlp, mp);
+
+                /* Remember that this message has been used, when we scan
+                   later to see if anything was omitted.  */
+                defmsg->used = 1;
+              }
+
+            stats->merged++;
+          }
+        else if (!is_header (refmsg))
+          {
+            /* If the message was not defined at all, try to find a very
+               similar message, it could be a typo, or the suggestion may
+               help.  This search assumed use_fuzzy_matching and used
+               definitions_search_fuzzy.  */
+            if (search_results[j].found != NULL && search_results[j].fuzzy)
+              {
+                message_ty *defmsg = search_results[j].found;
+                message_ty *mp;
+
+                if (verbosity_level > 1)
+                  {
+                    po_gram_error_at_line (&refmsg->pos,
+                                           _("this message is used but not defined..."));
+                    error_message_count--;
+                    po_gram_error_at_line (&defmsg->pos,
+                                           _("...but this definition is similar"));
+                  }
+
+                /* Merge the reference with the definition: take the #. and
+                   #: comments from the reference, take the # comments from
+                   the definition, take the msgstr from the definition.  Add
+                   this merged entry to the output message list.  */
+                mp = message_merge (defmsg, refmsg, true, &distribution);
+
+                message_list_append (resultmlp, mp);
+
+                /* Remember that this message has been used, when we scan
+                   later to see if anything was omitted.  */
+                defmsg->used = 1;
+
+                stats->fuzzied++;
+                if (!quiet && verbosity_level <= 1)
+                  /* Always print a dot if we handled a fuzzy match.  */
+                  fputc ('.', stderr);
+              }
+            else
+              {
+                message_ty *mp;
+                bool is_untranslated;
+                const char *p;
+                const char *pend;
+
+                if (verbosity_level > 1)
+                  po_gram_error_at_line (&refmsg->pos,
+                                         _("this message is used but not defined in %s"),
+                                         fn1);
+
+                mp = message_copy (refmsg);
+
+                /* Test if mp is untranslated.  (It most likely is.)  */
+                is_untranslated = true;
+                for (p = mp->msgstr, pend = p + mp->msgstr_len; p < pend; p++)
+                  if (*p != '\0')
+                    {
+                      is_untranslated = false;
+                      break;
+                    }
+
+                if (mp->msgid_plural != NULL && is_untranslated)
+                  {
+                    /* Change mp->msgstr_len consecutive empty strings into
+                       nplurals consecutive empty strings.  */
+                    if (nplurals > mp->msgstr_len)
+                      mp->msgstr = untranslated_plural_msgstr;
+                    mp->msgstr_len = nplurals;
+                  }
+
+                /* When producing output for msgfmt, omit messages that are
+                   untranslated or fuzzy (except the header entry).  */
+                if (!(for_msgfmt && (is_untranslated || mp->is_fuzzy)))
+                  {
+                    message_list_append (resultmlp, mp);
+                  }
+
+                stats->missing++;
+              }
+          }
+      }
+
+    free (search_results);
+  }
 
   /* Now postprocess the problematic merges.  This is needed because we
      want the result to pass the "msgfmt -c -v" check.  */
@@ -1567,6 +1672,7 @@ this message is used but not defined in %s"), fn1);
     /* message_merge sets mp->used to 1 or 2, depending on the problem.
        Compute the bitwise OR of all these.  */
     int problematic = 0;
+    size_t j;
 
     for (j = 0; j < resultmlp->nitems; j++)
       problematic |= resultmlp->item[j]->used;
@@ -1600,10 +1706,8 @@ this message is used but not defined in %s"), fn1);
                 unsigned long i;
 
                 if (verbosity_level > 1)
-                  {
-                    po_gram_error_at_line (&mp->pos, _("\
-this message should define plural forms"));
-                  }
+                  po_gram_error_at_line (&mp->pos,
+                                         _("this message should define plural forms"));
 
                 new_msgstr_len = nplurals * mp->msgstr_len;
                 new_msgstr = XNMALLOC (new_msgstr_len, char);
@@ -1623,10 +1727,8 @@ this message should define plural forms"));
                    Use only the first among the plural forms.  */
 
                 if (verbosity_level > 1)
-                  {
-                    po_gram_error_at_line (&mp->pos, _("\
-this message should not define plural forms"));
-                  }
+                  po_gram_error_at_line (&mp->pos,
+                                         _("this message should not define plural forms"));
 
                 mp->msgstr_len = strlen (mp->msgstr) + 1;
                 mp->is_fuzzy = true;
@@ -1641,17 +1743,21 @@ this message should not define plural forms"));
   /* Now that mp->is_fuzzy is finalized for all messages, remove the
      "previous msgid" information from all messages that are not fuzzy or
      are untranslated.  */
-  for (j = 0; j < resultmlp->nitems; j++)
-    {
-      message_ty *mp = resultmlp->item[j];
+  {
+    size_t j;
 
-      if (!mp->is_fuzzy || mp->msgstr[0] == '\0')
-        {
-          mp->prev_msgctxt = NULL;
-          mp->prev_msgid = NULL;
-          mp->prev_msgid_plural = NULL;
-        }
-    }
+    for (j = 0; j < resultmlp->nitems; j++)
+      {
+        message_ty *mp = resultmlp->item[j];
+
+        if (!mp->is_fuzzy || mp->msgstr[0] == '\0')
+          {
+            mp->prev_msgctxt = NULL;
+            mp->prev_msgid = NULL;
+            mp->prev_msgid_plural = NULL;
+          }
+      }
+  }
 }
 
 static msgdomain_list_ty *
@@ -1719,7 +1825,7 @@ merge (const char *fn1, const char *fn2, catalog_input_format_ty input_syntax,
         }
     if (was_utf8)
       {
-        def = iconv_msgdomain_list (def, "UTF-8", true, fn1);
+        def = iconv_msgdomain_list (def, po_charset_utf8, true, fn1);
         if (compendiums != NULL)
           for (k = 0; k < compendiums->nitems; k++)
             iconv_message_list (compendiums->item[k], NULL, po_charset_utf8,
@@ -1863,7 +1969,7 @@ merge (const char *fn1, const char *fn2, catalog_input_format_ty input_syntax,
               {
                 /* It's too hairy to find out what would be the optimal target
                    encoding.  So, convert everything to UTF-8.  */
-                def = iconv_msgdomain_list (def, "UTF-8", true, fn1);
+                def = iconv_msgdomain_list (def, po_charset_utf8, true, fn1);
                 if (compendiums != NULL)
                   for (k = 0; k < compendiums->nitems; k++)
                     iconv_message_list (compendiums->item[k],
@@ -1975,48 +2081,51 @@ merge (const char *fn1, const char *fn2, catalog_input_format_ty input_syntax,
 
   definitions_destroy (&definitions);
 
-  /* Look for messages in the definition file, which are not present
-     in the reference file, indicating messages which defined but not
-     used in the program.  Don't scan the compendium(s).  */
-  for (k = 0; k < def->nitems; ++k)
+  if (!for_msgfmt)
     {
-      const char *domain = def->item[k]->domain;
-      message_list_ty *defmlp = def->item[k]->messages;
-
-      for (j = 0; j < defmlp->nitems; j++)
+      /* Look for messages in the definition file, which are not present
+         in the reference file, indicating messages which defined but not
+         used in the program.  Don't scan the compendium(s).  */
+      for (k = 0; k < def->nitems; ++k)
         {
-          message_ty *defmsg = defmlp->item[j];
+          const char *domain = def->item[k]->domain;
+          message_list_ty *defmlp = def->item[k]->messages;
 
-          if (!defmsg->used)
+          for (j = 0; j < defmlp->nitems; j++)
             {
-              /* Remember the old translation although it is not used anymore.
-                 But we mark it as obsolete.  */
-              message_ty *mp;
+              message_ty *defmsg = defmlp->item[j];
 
-              mp = message_copy (defmsg);
-              /* Clear the extracted comments.  */
-              if (mp->comment_dot != NULL)
+              if (!defmsg->used)
                 {
-                  string_list_free (mp->comment_dot);
-                  mp->comment_dot = NULL;
-                }
-              /* Clear the file position comments.  */
-              if (mp->filepos != NULL)
-                {
-                  size_t i;
+                  /* Remember the old translation although it is not used anymore.
+                     But we mark it as obsolete.  */
+                  message_ty *mp;
 
-                  for (i = 0; i < mp->filepos_count; i++)
-                    free ((char *) mp->filepos[i].file_name);
-                  mp->filepos_count = 0;
-                  free (mp->filepos);
-                  mp->filepos = NULL;
-                }
-              /* Mark as obsolete.   */
-              mp->obsolete = true;
+                  mp = message_copy (defmsg);
+                  /* Clear the extracted comments.  */
+                  if (mp->comment_dot != NULL)
+                    {
+                      string_list_free (mp->comment_dot);
+                      mp->comment_dot = NULL;
+                    }
+                  /* Clear the file position comments.  */
+                  if (mp->filepos != NULL)
+                    {
+                      size_t i;
 
-              message_list_append (msgdomain_list_sublist (result, domain, true),
-                                   mp);
-              stats.obsolete++;
+                      for (i = 0; i < mp->filepos_count; i++)
+                        free ((char *) mp->filepos[i].file_name);
+                      mp->filepos_count = 0;
+                      free (mp->filepos);
+                      mp->filepos = NULL;
+                    }
+                  /* Mark as obsolete.   */
+                  mp->obsolete = true;
+
+                  message_list_append (msgdomain_list_sublist (result, domain, true),
+                                       mp);
+                  stats.obsolete++;
+                }
             }
         }
     }

@@ -1,11 +1,40 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * Author: Daniel Veillard
+ */
+
 /*
  * Summary: interface for the XML entities handling
  * Description: this module provides some of the entity API needed
  *              for the parser and applications.
- *
- * Copy: See Copyright for the status of this software.
- *
- * Author: Daniel Veillard
  */
 
 #ifndef __XML_ENTITIES_H__
@@ -57,6 +86,9 @@ struct _xmlEntity {
     const xmlChar           *URI;	/* the full URI as computed */
     int                    owner;	/* does the entity own the childrens */
     int			 checked;	/* was the entity content checked */
+					/* this is also used to count entities
+					 * references done from that entity
+					 * and if it contains '<' */
 };
 
 /*
@@ -72,9 +104,17 @@ typedef xmlEntitiesTable *xmlEntitiesTablePtr;
  */
 
 #ifdef LIBXML_LEGACY_ENABLED
-XMLPUBFUN void XMLCALL		
+XMLPUBFUN void XMLCALL
 		xmlInitializePredefinedEntities	(void);
 #endif /* LIBXML_LEGACY_ENABLED */
+
+XMLPUBFUN xmlEntityPtr XMLCALL
+			xmlNewEntity		(xmlDocPtr doc,
+						 const xmlChar *name,
+						 int type,
+						 const xmlChar *ExternalID,
+						 const xmlChar *SystemID,
+						 const xmlChar *content);
 XMLPUBFUN xmlEntityPtr XMLCALL
 			xmlAddDocEntity		(xmlDocPtr doc,
 						 const xmlChar *name,
@@ -82,53 +122,53 @@ XMLPUBFUN xmlEntityPtr XMLCALL
 						 const xmlChar *ExternalID,
 						 const xmlChar *SystemID,
 						 const xmlChar *content);
-XMLPUBFUN xmlEntityPtr XMLCALL		
+XMLPUBFUN xmlEntityPtr XMLCALL
 			xmlAddDtdEntity		(xmlDocPtr doc,
 						 const xmlChar *name,
 						 int type,
 						 const xmlChar *ExternalID,
 						 const xmlChar *SystemID,
 						 const xmlChar *content);
-XMLPUBFUN xmlEntityPtr XMLCALL		
+XMLPUBFUN xmlEntityPtr XMLCALL
 			xmlGetPredefinedEntity	(const xmlChar *name);
-XMLPUBFUN xmlEntityPtr XMLCALL		
-			xmlGetDocEntity		(xmlDocPtr doc,
+XMLPUBFUN xmlEntityPtr XMLCALL
+			xmlGetDocEntity		(const xmlDoc *doc,
 						 const xmlChar *name);
-XMLPUBFUN xmlEntityPtr XMLCALL		
+XMLPUBFUN xmlEntityPtr XMLCALL
 			xmlGetDtdEntity		(xmlDocPtr doc,
 						 const xmlChar *name);
-XMLPUBFUN xmlEntityPtr XMLCALL		
+XMLPUBFUN xmlEntityPtr XMLCALL
 			xmlGetParameterEntity	(xmlDocPtr doc,
 						 const xmlChar *name);
 #ifdef LIBXML_LEGACY_ENABLED
-XMLPUBFUN const xmlChar * XMLCALL		
+XMLPUBFUN const xmlChar * XMLCALL
 			xmlEncodeEntities	(xmlDocPtr doc,
 						 const xmlChar *input);
 #endif /* LIBXML_LEGACY_ENABLED */
-XMLPUBFUN xmlChar * XMLCALL		
+XMLPUBFUN xmlChar * XMLCALL
 			xmlEncodeEntitiesReentrant(xmlDocPtr doc,
 						 const xmlChar *input);
-XMLPUBFUN xmlChar * XMLCALL		
-			xmlEncodeSpecialChars	(xmlDocPtr doc,
+XMLPUBFUN xmlChar * XMLCALL
+			xmlEncodeSpecialChars	(const xmlDoc *doc,
 						 const xmlChar *input);
-XMLPUBFUN xmlEntitiesTablePtr XMLCALL	
+XMLPUBFUN xmlEntitiesTablePtr XMLCALL
 			xmlCreateEntitiesTable	(void);
 #ifdef LIBXML_TREE_ENABLED
-XMLPUBFUN xmlEntitiesTablePtr XMLCALL	
+XMLPUBFUN xmlEntitiesTablePtr XMLCALL
 			xmlCopyEntitiesTable	(xmlEntitiesTablePtr table);
 #endif /* LIBXML_TREE_ENABLED */
-XMLPUBFUN void XMLCALL			
+XMLPUBFUN void XMLCALL
 			xmlFreeEntitiesTable	(xmlEntitiesTablePtr table);
 #ifdef LIBXML_OUTPUT_ENABLED
-XMLPUBFUN void XMLCALL			
+XMLPUBFUN void XMLCALL
 			xmlDumpEntitiesTable	(xmlBufferPtr buf,
 						 xmlEntitiesTablePtr table);
-XMLPUBFUN void XMLCALL			
+XMLPUBFUN void XMLCALL
 			xmlDumpEntityDecl	(xmlBufferPtr buf,
 						 xmlEntityPtr ent);
 #endif /* LIBXML_OUTPUT_ENABLED */
 #ifdef LIBXML_LEGACY_ENABLED
-XMLPUBFUN void XMLCALL			
+XMLPUBFUN void XMLCALL
 			xmlCleanupPredefinedEntities(void);
 #endif /* LIBXML_LEGACY_ENABLED */
 

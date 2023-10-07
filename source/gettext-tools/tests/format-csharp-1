@@ -1,11 +1,8 @@
 #! /bin/sh
+. "${srcdir=.}/init.sh"; path_prepend_ . ../src
 
 # Test recognition of C# format strings.
 
-tmpfiles=""
-trap 'rm -fr $tmpfiles' 1 2 3 15
-
-tmpfiles="$tmpfiles f-cs-1.data"
 cat <<\EOF > f-cs-1.data
 # Valid: one argument
 "abc{0}def"
@@ -54,12 +51,11 @@ n=0
 while read comment; do
   read string
   n=`expr $n + 1`
-  tmpfiles="$tmpfiles f-cs-1-$n.in f-cs-1-$n.po"
   cat <<EOF > f-cs-1-$n.in
 GetString(${string});
 EOF
-  ${XGETTEXT} -L C# -o f-cs-1-$n.po f-cs-1-$n.in || exit 1
-  test -f f-cs-1-$n.po || exit 1
+  ${XGETTEXT} -L C# -o f-cs-1-$n.po f-cs-1-$n.in || Exit 1
+  test -f f-cs-1-$n.po || Exit 1
   fail=
   if echo "$comment" | grep 'Valid:' > /dev/null; then
     if grep csharp-format f-cs-1-$n.po > /dev/null; then
@@ -79,11 +75,9 @@ EOF
     cat f-cs-1-$n.in 1>&2
     echo "Got:" 1>&2
     cat f-cs-1-$n.po 1>&2
-    exit 1
+    Exit 1
   fi
   rm -f f-cs-1-$n.in f-cs-1-$n.po
 done < f-cs-1.data
 
-rm -fr $tmpfiles
-
-exit 0
+Exit 0

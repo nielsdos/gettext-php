@@ -1,5 +1,5 @@
 /* GNU gettext - internationalization aids
-   Copyright (C) 1995-1998, 2000-2006, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1998, 2000-2006, 2012, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <millerp@canb.auug.org.au>
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _PO_LEX_H
 #define _PO_LEX_H
@@ -55,6 +55,9 @@ extern "C" {
 extern DLL_VARIABLE lex_pos_ty gram_pos;
 extern DLL_VARIABLE int gram_pos_column;
 
+/* Whether the PO file is in the role of a POT file.  */
+extern DLL_VARIABLE bool gram_pot_role;
+
 /* Number of parse errors within a PO file that cause the program to
    terminate.  Cf. error_message_count, declared in <error.h>.  */
 extern DLL_VARIABLE unsigned int gram_max_allowed_errors;
@@ -65,13 +68,13 @@ extern DLL_VARIABLE bool pass_obsolete_entries;
 
 /* Prepare lexical analysis.  */
 extern void lex_start (FILE *fp, const char *real_filename,
-                       const char *logical_filename);
+                       const char *logical_filename, bool is_pot_role);
 
 /* Terminate lexical analysis.  */
 extern void lex_end (void);
 
 /* Return the next token in the PO file.  The return codes are defined
-   in "po-gram-gen2.h".  Associated data is put in 'po_gram_lval.  */
+   in "po-gram-gen2.h".  Associated data is put in 'po_gram_lval'.  */
 extern int po_gram_lex (void);
 
 /* po_gram_lex() can return comments as COMMENT.  Switch this on or off.  */

@@ -1,12 +1,40 @@
-/*
- * xlink.c : implementation of the hyperlinks detection module
- *           This version supports both XML XLinks and HTML simple links
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
  *
- * See Copyright for the status of this software.
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  *
  * daniel@veillard.com
  */
 
+/*
+ * xlink.c : implementation of the hyperlinks detection module
+ *           This version supports both XML XLinks and HTML simple links
+ */
 
 #define IN_LIBXML
 #include "libxml.h"
@@ -28,7 +56,7 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
-#ifdef HAVE_ZLIB_H
+#ifdef LIBXML_ZLIB_ENABLED
 #include <zlib.h>
 #endif
 
@@ -47,7 +75,7 @@
  *           Default setting and related functions		*
  *								*
  ****************************************************************/
- 
+
 static xlinkHandlerPtr xlinkDefaultHandler = NULL;
 static xlinkNodeDetectFunc	xlinkDefaultDetect = NULL;
 
@@ -93,7 +121,7 @@ xlinkGetDefaultDetect	(void) {
  *
  * Set the default xlink detection routine
  */
-void 
+void
 xlinkSetDefaultDetect	(xlinkNodeDetectFunc func) {
     xlinkDefaultDetect = func;
 }
@@ -104,7 +132,7 @@ xlinkSetDefaultDetect	(xlinkNodeDetectFunc func) {
  *								*
  ****************************************************************/
 
- 
+
 /**
  * xlinkIsLink:
  * @doc:  the document containing the node
@@ -119,7 +147,7 @@ xlinkSetDefaultDetect	(xlinkNodeDetectFunc func) {
  * Returns the xlinkType of the node (XLINK_TYPE_NONE if there is no
  *         link detected.
  */
-xlinkType 
+xlinkType
 xlinkIsLink	(xmlDocPtr doc, xmlNodePtr node) {
     xmlChar *type = NULL, *role = NULL;
     xlinkType ret = XLINK_TYPE_NONE;
@@ -150,14 +178,14 @@ xlinkIsLink	(xmlDocPtr doc, xmlNodePtr node) {
     if (type != NULL) {
 	if (xmlStrEqual(type, BAD_CAST "simple")) {
             ret = XLINK_TYPE_SIMPLE;
-	} if (xmlStrEqual(type, BAD_CAST "extended")) {
+	} else if (xmlStrEqual(type, BAD_CAST "extended")) {
 	    role = xmlGetNsProp(node, BAD_CAST "role", XLINK_NAMESPACE);
 	    if (role != NULL) {
 		xmlNsPtr xlink;
 		xlink = xmlSearchNs(doc, node, XLINK_NAMESPACE);
 		if (xlink == NULL) {
 		    /* Humm, fallback method */
-		    if (xmlStrEqual(role, BAD_CAST"xlink:external-linkset")) 
+		    if (xmlStrEqual(role, BAD_CAST"xlink:external-linkset"))
 			ret = XLINK_TYPE_EXTENDED_SET;
 		} else {
 		    xmlChar buf[200];

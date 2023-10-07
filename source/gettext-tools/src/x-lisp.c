@@ -1,5 +1,5 @@
 /* xgettext Lisp backend.
-   Copyright (C) 2001-2003, 2005-2009 Free Software Foundation, Inc.
+   Copyright (C) 2001-2003, 2005-2009, 2018-2023 Free Software Foundation, Inc.
 
    This file was written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -29,11 +29,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "attribute.h"
 #include "message.h"
 #include "xgettext.h"
+#include "xg-pos.h"
+#include "xg-mixed-string.h"
+#include "xg-arglist-context.h"
+#include "xg-arglist-callshape.h"
+#include "xg-arglist-parser.h"
+#include "xg-message.h"
 #include "error.h"
+#include "error-progname.h"
 #include "xalloc.h"
-#include "hash.h"
+#include "mem-hash-map.h"
 #include "gettext.h"
 
 #define _(s) gettext(s)
@@ -189,13 +197,6 @@ init_flag_table_lisp ()
 
 /* ======================== Reading of characters.  ======================== */
 
-/* Real filename, used in error messages about the input file.  */
-static const char *real_file_name;
-
-/* Logical filename and line number, used to label the extracted messages.  */
-static char *logical_file_name;
-static int line_number;
-
 /* The input file stream.  */
 static FILE *fp;
 
@@ -209,8 +210,8 @@ do_getc ()
   if (c == EOF)
     {
       if (ferror (fp))
-        error (EXIT_FAILURE, errno, _("\
-error while reading \"%s\""), real_file_name);
+        error (EXIT_FAILURE, errno,
+               _("error while reading \"%s\""), real_file_name);
     }
   else if (c == '\n')
    line_number++;
@@ -926,13 +927,28 @@ string_of_object (const struct object *op)
   return str;
 }
 
+
 /* Context lookup table.  */
 static flag_context_list_table_ty *flag_context_list_table;
+
+
+/* Maximum supported nesting depth.  */
+#define MAX_NESTING_DEPTH 1000
+
+/* Current nesting depth.  */
+static int nesting_depth;
+
 
 /* Read the next object.  */
 static void
 read_object (struct object *op, flag_context_ty outer_context)
 {
+  if (nesting_depth > MAX_NESTING_DEPTH)
+    {
+      error_with_progname = false;
+      error (EXIT_FAILURE, 0, _("%s:%d: error: too deeply nested objects"),
+             logical_file_name, line_number);
+    }
   for (;;)
     {
       struct char_syntax curr;
@@ -1025,7 +1041,9 @@ read_object (struct object *op, flag_context_ty outer_context)
                                            flag_context_list_iterator_advance (
                                              &context_iter));
 
+                    ++nesting_depth;
                     read_object (&inner, inner_context);
+                    nesting_depth--;
 
                     /* Recognize end of list.  */
                     if (inner.type == t_close)
@@ -1087,12 +1105,19 @@ read_object (struct object *op, flag_context_ty outer_context)
                       {
                         /* These are the argument positions.  */
                         if (argparser != NULL && inner.type == t_string)
-                          arglist_parser_remember (argparser, arg,
-                                                   string_of_object (&inner),
-                                                   inner_context,
-                                                   logical_file_name,
-                                                   inner.line_number_at_start,
-                                                   savable_comment);
+                          {
+                            char *s = string_of_object (&inner);
+                            mixed_string_ty *ms =
+                              mixed_string_alloc_simple (s, lc_string,
+                                                         logical_file_name,
+                                                         inner.line_number_at_start);
+                            free (s);
+                            arglist_parser_remember (argparser, arg, ms,
+                                                     inner_context,
+                                                     logical_file_name,
+                                                     inner.line_number_at_start,
+                                                     savable_comment, false);
+                          }
                       }
 
                     free_object (&inner);
@@ -1121,13 +1146,15 @@ read_object (struct object *op, flag_context_ty outer_context)
                 if (c != EOF && c != '@' && c != '.')
                   do_ungetc (c);
               }
-              /*FALLTHROUGH*/
+              FALLTHROUGH;
             case '\'':
             case '`':
               {
                 struct object inner;
 
+                ++nesting_depth;
                 read_object (&inner, null_context);
+                nesting_depth--;
 
                 /* Dots and EOF are not allowed here.  But be tolerant.  */
 
@@ -1193,9 +1220,9 @@ read_object (struct object *op, flag_context_ty outer_context)
 
                     pos.file_name = logical_file_name;
                     pos.line_number = op->line_number_at_start;
-                    remember_a_message (mlp, NULL, string_of_object (op),
-                                        null_context, &pos,
-                                        NULL, savable_comment);
+                    remember_a_message (mlp, NULL, string_of_object (op), false,
+                                        false, null_context, &pos,
+                                        NULL, savable_comment, false);
                   }
                 last_non_comment_line = line_number;
                 return;
@@ -1204,27 +1231,27 @@ read_object (struct object *op, flag_context_ty outer_context)
             case '#':
               /* Dispatch macro handling.  */
               {
-                int c;
+                int dmc;
 
                 for (;;)
                   {
-                    c = do_getc ();
-                    if (c == EOF)
+                    dmc = do_getc ();
+                    if (dmc == EOF)
                       /* Invalid input.  Be tolerant, no error message.  */
                       {
                         op->type = t_other;
                         return;
                       }
-                    if (!(c >= '0' && c <= '9'))
+                    if (!(dmc >= '0' && dmc <= '9'))
                       break;
                   }
 
-                switch (c)
+                switch (dmc)
                   {
                   case '(':
                   case '"':
-                    do_ungetc (c);
-                    /*FALLTHROUGH*/
+                    do_ungetc (dmc);
+                    FALLTHROUGH;
                   case '\'':
                   case ':':
                   case '.':
@@ -1235,7 +1262,9 @@ read_object (struct object *op, flag_context_ty outer_context)
                   case 'S': case 's':
                     {
                       struct object inner;
+                      ++nesting_depth;
                       read_object (&inner, null_context);
+                      nesting_depth--;
                       /* Dots and EOF are not allowed here.
                          But be tolerant.  */
                       free_object (&inner);
@@ -1353,7 +1382,9 @@ read_object (struct object *op, flag_context_ty outer_context)
                     /* Simply assume every feature expression is true.  */
                     {
                       struct object inner;
+                      ++nesting_depth;
                       read_object (&inner, null_context);
+                      nesting_depth--;
                       /* Dots and EOF are not allowed here.
                          But be tolerant.  */
                       free_object (&inner);
@@ -1399,6 +1430,7 @@ extract_lisp (FILE *f,
   last_non_comment_line = -1;
 
   flag_context_list_table = flag_table;
+  nesting_depth = 0;
 
   init_keywords ();
 

@@ -1,5 +1,6 @@
 /* Reading tcl/msgcat .msg files.
-   Copyright (C) 2002-2003, 2005-2008, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2002-2003, 2005-2008, 2010-2011, 2018, 2020 Free Software
+   Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2002.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -55,7 +56,7 @@ msgdomain_read_tcl (const char *locale_name, const char *directory)
   char *frobbed_locale_name;
   char *p;
   char *file_name;
-  char *argv[4];
+  const char *argv[4];
   pid_t child;
   int fd[1];
   FILE *fp;
@@ -65,7 +66,7 @@ msgdomain_read_tcl (const char *locale_name, const char *directory)
 
   /* Make it possible to override the msgunfmt.tcl location.  This is
      necessary for running the testsuite before "make install".  */
-  gettextdatadir = getenv ("GETTEXTDATADIR");
+  gettextdatadir = getenv ("GETTEXTTCLDIR");
   if (gettextdatadir == NULL || gettextdatadir[0] == '\0')
     gettextdatadir = relocate (GETTEXTDATADIR);
 
@@ -102,8 +103,8 @@ msgdomain_read_tcl (const char *locale_name, const char *directory)
     }
 
   /* Open a pipe to the Tcl interpreter.  */
-  child = create_pipe_in ("tclsh", "tclsh", argv, DEV_NULL, false, true, true,
-                          fd);
+  child = create_pipe_in ("tclsh", "tclsh", argv, NULL,
+                          DEV_NULL, false, true, true, fd);
 
   fp = fdopen (fd[0], "r");
   if (fp == NULL)

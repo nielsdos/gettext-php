@@ -1,5 +1,5 @@
 /* Writing Java .properties files.
-   Copyright (C) 2003, 2005-2009 Free Software Foundation, Inc.
+   Copyright (C) 2003, 2005-2009, 2019, 2021 Free Software Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2003.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -28,13 +28,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <textstyle.h>
+
 #include "error.h"
 #include "message.h"
 #include "msgl-ascii.h"
 #include "msgl-iconv.h"
 #include "po-charset.h"
 #include "unistr.h"
-#include "ostream.h"
 #include "write-po.h"
 #include "xalloc.h"
 
@@ -216,7 +217,8 @@ write_message (ostream_t stream, const message_ty *mp,
   message_print_comment_dot (mp, stream);
 
   /* Print the file position comments.  */
-  message_print_comment_filepos (mp, stream, false, page_width);
+  message_print_comment_filepos (mp, stream, po_charset_utf8, false,
+                                 page_width);
 
   /* Print flag information in special comment.  */
   message_print_comment_flags (mp, stream, debug);
@@ -295,6 +297,7 @@ const struct catalog_output_format output_format_properties =
 {
   msgdomain_list_print_properties,      /* print */
   true,                                 /* requires_utf8 */
+  true,                                 /* requires_utf8_for_filenames_with_spaces */
   false,                                /* supports_color */
   false,                                /* supports_multiple_domains */
   false,                                /* supports_contexts */

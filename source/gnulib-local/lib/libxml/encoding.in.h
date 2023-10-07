@@ -1,3 +1,36 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * Author: Daniel Veillard
+ */
+
 /*
  * Summary: interface for the encoding conversion functions
  * Description: interface for the encoding conversion functions needed for
@@ -13,10 +46,6 @@
  *                described in Unicode Technical Report #4.
  * [US-ASCII]     Coded Character Set--7-bit American Standard Code for
  *                Information Interchange, ANSI X3.4-1986.
- *
- * Copy: See Copyright for the status of this software.
- *
- * Author: Daniel Veillard
  */
 
 #ifndef __XML_CHAR_ENCODING_H__
@@ -26,6 +55,9 @@
 
 #ifdef LIBXML_ICONV_ENABLED
 #include <iconv.h>
+#endif
+#ifdef LIBXML_ICU_ENABLED
+#include <unicode/ucnv.h>
 #endif
 #ifdef __cplusplus
 extern "C" {
@@ -125,6 +157,18 @@ typedef int (* xmlCharEncodingOutputFunc)(unsigned char *out, int *outlen,
  * Block defining the handlers for non UTF-8 encodings.
  * If iconv is supported, there are two extra fields.
  */
+#ifdef LIBXML_ICU_ENABLED
+/* Size of pivot buffer, same as icu/source/common/ucnv.cpp CHUNK_SIZE */
+#define ICU_PIVOT_BUF_SIZE 1024
+struct _uconv_t {
+  UConverter *uconv; /* for conversion between an encoding and UTF-16 */
+  UConverter *utf8; /* for conversion between UTF-8 and UTF-16 */
+  UChar      pivot_buf[ICU_PIVOT_BUF_SIZE];
+  UChar      *pivot_source;
+  UChar      *pivot_target;
+};
+typedef struct _uconv_t uconv_t;
+#endif
 
 typedef struct _xmlCharEncodingHandler xmlCharEncodingHandler;
 typedef xmlCharEncodingHandler *xmlCharEncodingHandlerPtr;
@@ -136,6 +180,10 @@ struct _xmlCharEncodingHandler {
     iconv_t                    iconv_in;
     iconv_t                    iconv_out;
 #endif /* LIBXML_ICONV_ENABLED */
+#ifdef LIBXML_ICU_ENABLED
+    uconv_t                    *uconv_in;
+    uconv_t                    *uconv_out;
+#endif /* LIBXML_ICU_ENABLED */
 };
 
 #ifdef __cplusplus
@@ -149,32 +197,32 @@ extern "C" {
 /*
  * Interfaces for encoding handlers.
  */
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlInitCharEncodingHandlers	(void);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlCleanupCharEncodingHandlers	(void);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlRegisterCharEncodingHandler	(xmlCharEncodingHandlerPtr handler);
 XMLPUBFUN xmlCharEncodingHandlerPtr XMLCALL
 	xmlGetCharEncodingHandler	(xmlCharEncoding enc);
 XMLPUBFUN xmlCharEncodingHandlerPtr XMLCALL
 	xmlFindCharEncodingHandler	(const char *name);
 XMLPUBFUN xmlCharEncodingHandlerPtr XMLCALL
-	xmlNewCharEncodingHandler	(const char *name, 
-                          		 xmlCharEncodingInputFunc input,
-                          		 xmlCharEncodingOutputFunc output);
+	xmlNewCharEncodingHandler	(const char *name,
+					 xmlCharEncodingInputFunc input,
+					 xmlCharEncodingOutputFunc output);
 
 /*
  * Interfaces for encoding names and aliases.
  */
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlAddEncodingAlias		(const char *name,
 					 const char *alias);
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlDelEncodingAlias		(const char *alias);
 XMLPUBFUN const char * XMLCALL
 	xmlGetEncodingAlias		(const char *alias);
-XMLPUBFUN void XMLCALL	
+XMLPUBFUN void XMLCALL
 	xmlCleanupEncodingAliases	(void);
 XMLPUBFUN xmlCharEncoding XMLCALL
 	xmlParseCharEncoding		(const char *name);
@@ -188,12 +236,12 @@ XMLPUBFUN xmlCharEncoding XMLCALL
 	xmlDetectCharEncoding		(const unsigned char *in,
 					 int len);
 
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlCharEncOutFunc		(xmlCharEncodingHandler *handler,
 					 xmlBufferPtr out,
 					 xmlBufferPtr in);
 
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlCharEncInFunc		(xmlCharEncodingHandler *handler,
 					 xmlBufferPtr out,
 					 xmlBufferPtr in);
@@ -201,20 +249,20 @@ XMLPUBFUN int XMLCALL
 	xmlCharEncFirstLine		(xmlCharEncodingHandler *handler,
 					 xmlBufferPtr out,
 					 xmlBufferPtr in);
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	xmlCharEncCloseFunc		(xmlCharEncodingHandler *handler);
 
 /*
  * Export a few useful functions
  */
 #ifdef LIBXML_OUTPUT_ENABLED
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	UTF8Toisolat1			(unsigned char *out,
 					 int *outlen,
 					 const unsigned char *in,
 					 int *inlen);
 #endif /* LIBXML_OUTPUT_ENABLED */
-XMLPUBFUN int XMLCALL	
+XMLPUBFUN int XMLCALL
 	isolat1ToUTF8			(unsigned char *out,
 					 int *outlen,
 					 const unsigned char *in,

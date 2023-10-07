@@ -1,13 +1,42 @@
+/* libxml2 - Library for parsing XML documents
+ * Copyright (C) 2006-2019 Free Software Foundation, Inc.
+ *
+ * This file is not part of the GNU gettext program, but is used with
+ * GNU gettext.
+ *
+ * The original copyright notice is as follows:
+ */
+
+/*
+ * Copyright (C) 1998-2012 Daniel Veillard.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is fur-
+ * nished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FIT-
+ * NESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * daniel@veillard.com
+ */
+
 /*
  * DOCBparser.c : an attempt to parse SGML Docbook documents
  *
  * This is deprecated !!!
  * Code removed with release 2.6.0 it was broken.
  * The doc are expect to be migrated to XML DocBook
- *
- * See Copyright for the status of this software.
- *
- * daniel@veillard.com
  */
 
 #define IN_LIBXML
@@ -53,7 +82,7 @@ docbEncodeEntities(unsigned char *out ATTRIBUTE_UNUSED,
 /**
  * docbParseDocument:
  * @ctxt:  an SGML parser context
- * 
+ *
  * parse an SGML document (and build a tree if using the standard SAX
  * interface).
  *
@@ -163,12 +192,12 @@ docbCreatePushParserCtxt(docbSAXHandlerPtr sax ATTRIBUTE_UNUSED,
  * @cur:  a pointer to an array of xmlChar
  * @encoding:  a free form C string describing the SGML document encoding, or NULL
  * @sax:  the SAX handler block
- * @userData: if using SAX, this pointer will be provided on callbacks. 
+ * @userData: if using SAX, this pointer will be provided on callbacks.
  *
  * parse an SGML in-memory document and build a tree.
  * It use the given SAX function block to handle the parsing callback.
  * If sax is NULL, fallback to the default DOM tree building routines.
- * 
+ *
  * Returns the resulting document tree
  */
 
@@ -196,7 +225,7 @@ docbSAXParseDoc(xmlChar * cur ATTRIBUTE_UNUSED,
  * @encoding:  a free form C string describing the SGML document encoding, or NULL
  *
  * parse an SGML in-memory document and build a tree.
- * 
+ *
  * Returns the resulting document tree
  */
 
@@ -221,7 +250,7 @@ docbParseDoc(xmlChar * cur ATTRIBUTE_UNUSED,
  * @filename:  the filename
  * @encoding:  the SGML document encoding, or NULL
  *
- * Create a parser context for a file content. 
+ * Create a parser context for a file content.
  * Automatic support for ZLIB/Compress compressed document is provided
  * by default if found at compile-time.
  *
@@ -247,7 +276,7 @@ docbCreateFileParserCtxt(const char *filename ATTRIBUTE_UNUSED,
  * @filename:  the filename
  * @encoding:  a free form C string describing the SGML document encoding, or NULL
  * @sax:  the SAX handler block
- * @userData: if using SAX, this pointer will be provided on callbacks. 
+ * @userData: if using SAX, this pointer will be provided on callbacks.
  *
  * parse an SGML file and build a tree. Automatic support for ZLIB/Compress
  * compressed document is provided by default if found at compile-time.

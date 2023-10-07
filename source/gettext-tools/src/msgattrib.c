@@ -1,5 +1,5 @@
 /* Manipulates attributes of messages in translation catalogs.
-   Copyright (C) 2001-2007, 2009-2010, 2012 Free Software Foundation, Inc.
+   Copyright (C) 2001-2007, 2009-2010, 2012-2014, 2016, 2018-2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -26,13 +26,16 @@
 #include <stdlib.h>
 #include <locale.h>
 
+#include <textstyle.h>
+
+#include "noreturn.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "error.h"
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "message.h"
 #include "read-catalog.h"
 #include "read-po.h"
@@ -42,7 +45,6 @@
 #include "write-po.h"
 #include "write-properties.h"
 #include "write-stringtable.h"
-#include "color.h"
 #include "propername.h"
 #include "xalloc.h"
 #include "gettext.h"
@@ -73,17 +75,19 @@ enum
   SET_OBSOLETE          = 1 << 2,
   RESET_OBSOLETE        = 1 << 3,
   REMOVE_PREV           = 1 << 4,
-  ADD_PREV              = 1 << 5
+  ADD_PREV              = 1 << 5,
+  REMOVE_TRANSLATION    = 1 << 6
 };
 static int to_change;
 
 /* Long options.  */
 static const struct option long_options[] =
 {
-  { "add-location", no_argument, &line_comment, 1 },
+  { "add-location", optional_argument, NULL, 'n' },
   { "clear-fuzzy", no_argument, NULL, CHAR_MAX + 8 },
   { "clear-obsolete", no_argument, NULL, CHAR_MAX + 10 },
   { "clear-previous", no_argument, NULL, CHAR_MAX + 18 },
+  { "empty", no_argument, NULL, CHAR_MAX + 23 },
   { "color", optional_argument, NULL, CHAR_MAX + 19 },
   { "directory", required_argument, NULL, 'D' },
   { "escape", no_argument, NULL, 'E' },
@@ -94,7 +98,7 @@ static const struct option long_options[] =
   { "indent", no_argument, NULL, 'i' },
   { "no-escape", no_argument, NULL, 'e' },
   { "no-fuzzy", no_argument, NULL, CHAR_MAX + 3 },
-  { "no-location", no_argument, &line_comment, 0 },
+  { "no-location", no_argument, NULL, CHAR_MAX + 22 },
   { "no-obsolete", no_argument, NULL, CHAR_MAX + 5 },
   { "no-wrap", no_argument, NULL, CHAR_MAX + 13 },
   { "obsolete", no_argument, NULL, CHAR_MAX + 12 },
@@ -116,17 +120,13 @@ static const struct option long_options[] =
   { "translated", no_argument, NULL, CHAR_MAX + 1 },
   { "untranslated", no_argument, NULL, CHAR_MAX + 2 },
   { "version", no_argument, NULL, 'V' },
-  { "width", required_argument, NULL, 'w', },
+  { "width", required_argument, NULL, 'w' },
   { NULL, 0, NULL, 0 }
 };
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ >= 5) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 static msgdomain_list_ty *process_msgdomain_list (msgdomain_list_ty *mdlp,
                                                   msgdomain_list_ty *only_mdlp,
                                                 msgdomain_list_ty *ignore_mdlp);
@@ -154,10 +154,8 @@ main (int argc, char **argv)
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -207,7 +205,8 @@ main (int argc, char **argv)
         break;
 
       case 'n':
-        line_comment = 1;
+        if (handle_filepos_comment_option (optarg))
+          usage (EXIT_FAILURE);
         break;
 
       case 'o':
@@ -331,6 +330,14 @@ main (int argc, char **argv)
         to_change |= ADD_PREV;
         break;
 
+      case CHAR_MAX + 22: /* --no-location */
+        message_print_style_filepos (filepos_comment_none);
+        break;
+
+      case CHAR_MAX + 23: /* --empty */
+        to_change |= REMOVE_TRANSLATION;
+        break;
+
       default:
         usage (EXIT_FAILURE);
         /* NOTREACHED */
@@ -339,14 +346,15 @@ main (int argc, char **argv)
   /* Version information requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "2001-2010");
+              "2001-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Bruno Haible"));
       exit (EXIT_SUCCESS);
     }
@@ -367,10 +375,6 @@ There is NO WARRANTY, to the extent permitted by law.\n\
     }
 
   /* Verify selected options.  */
-  if (!line_comment && sort_by_filepos)
-    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
-           "--no-location", "--sort-by-file");
-
   if (sort_by_msgid && sort_by_filepos)
     error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
            "--sort-output", "--sort-by-file");
@@ -471,6 +475,8 @@ Attribute manipulation:\n"));
       printf (_("\
       --clear-previous        remove the \"previous msgid\" from all messages\n"));
       printf (_("\
+      --empty                 when removing 'fuzzy', also set msgstr empty\n"));
+      printf (_("\
       --only-file=FILE.po     manipulate only entries listed in FILE.po\n"));
       printf (_("\
       --ignore-file=FILE.po   manipulate only entries not listed in FILE.po\n"));
@@ -529,12 +535,16 @@ Informative output:\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -614,7 +624,25 @@ process_message_list (message_list_ty *mlp,
                 }
 
               if (to_change & RESET_FUZZY)
-                mp->is_fuzzy = false;
+                {
+                  if ((to_change & REMOVE_TRANSLATION)
+                      && mp->is_fuzzy && !mp->obsolete)
+                    {
+                      unsigned long int nplurals = 0;
+                      char *msgstr;
+                      size_t pos;
+
+                      for (pos = 0; pos < mp->msgstr_len; ++pos)
+                        if (!mp->msgstr[pos])
+                          ++nplurals;
+                      free ((char *) mp->msgstr);
+                      msgstr = XNMALLOC (nplurals, char);
+                      memset (msgstr, '\0', nplurals);
+                      mp->msgstr = msgstr;
+                      mp->msgstr_len = nplurals;
+                    }
+                  mp->is_fuzzy = false;
+                }
               /* Always keep the header entry non-obsolete.  */
               if ((to_change & SET_OBSOLETE) && !is_header (mp))
                 mp->obsolete = true;

@@ -1,5 +1,5 @@
 /* Extracts strings from C source file to Uniforum style .po file.
-   Copyright (C) 1995-1998, 2000-2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1998, 2000-2016, 2018-2023 Free Software Foundation, Inc.
    Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>, April 1995.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,12 +13,15 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
 #endif
 #include <alloca.h>
+
+/* Specification.  */
+#include "xgettext.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -28,10 +31,21 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <locale.h>
 #include <limits.h>
 
-#include "xgettext.h"
+#if HAVE_ICONV
+#include <iconv.h>
+#endif
+
+#include <textstyle.h>
+
+#include "noreturn.h"
+#include "rc-str-list.h"
+#include "xg-encoding.h"
+#include "xg-arglist-context.h"
+#include "xg-message.h"
 #include "closeout.h"
 #include "dir-list.h"
 #include "file-list.h"
@@ -40,12 +54,12 @@
 #include "error-progname.h"
 #include "progname.h"
 #include "relocatable.h"
-#include "basename.h"
+#include "basename-lgpl.h"
 #include "xerror.h"
 #include "xvasprintf.h"
-#include "xsize.h"
 #include "xalloc.h"
 #include "xmalloca.h"
+#include "verify.h"
 #include "c-strstr.h"
 #include "xerror.h"
 #include "filename.h"
@@ -55,53 +69,67 @@
 #include "read-catalog-abstract.h"
 #include "read-po.h"
 #include "message.h"
+#include "pos.h"
 #include "po-charset.h"
 #include "msgl-iconv.h"
 #include "msgl-ascii.h"
+#include "msgl-ofn.h"
+#include "msgl-check.h"
 #include "po-time.h"
 #include "write-catalog.h"
 #include "write-po.h"
 #include "write-properties.h"
 #include "write-stringtable.h"
-#include "color.h"
 #include "format.h"
 #include "propername.h"
+#include "sentence.h"
+#include "its.h"
+#include "locating-rule.h"
+#include "search-path.h"
 #include "gettext.h"
 
 /* A convenience macro.  I don't like writing gettext() every time.  */
 #define _(str) gettext (str)
 
 
-#include "x-c.h"
 #include "x-po.h"
-#include "x-sh.h"
+#include "x-properties.h"
+#include "x-stringtable.h"
+#include "x-c.h"
 #include "x-python.h"
+#include "x-java.h"
+#include "x-csharp.h"
+#include "x-javascript.h"
+#include "x-scheme.h"
 #include "x-lisp.h"
 #include "x-elisp.h"
 #include "x-librep.h"
-#include "x-scheme.h"
-#include "x-smalltalk.h"
-#include "x-java.h"
-#include "x-properties.h"
-#include "x-csharp.h"
+#include "x-ruby.h"
+#include "x-sh.h"
 #include "x-awk.h"
-#include "x-ycp.h"
+#include "x-lua.h"
+#include "x-smalltalk.h"
+#include "x-vala.h"
 #include "x-tcl.h"
 #include "x-perl.h"
 #include "x-php.h"
-#include "x-stringtable.h"
+#include "x-ycp.h"
 #include "x-rst.h"
+#include "x-desktop.h"
 #include "x-glade.h"
-#include "x-lua.h"
-#include "x-javascript.h"
-#include "x-vala.h"
+#include "x-gsettings.h"
+#include "x-appdata.h"
 
 
-/* If nonzero add all comments immediately preceding one of the keywords. */
-static bool add_all_comments = false;
+#define SIZEOF(a) (sizeof(a) / sizeof(a[0]))
+#define ENDOF(a) ((a) + SIZEOF(a))
+
+
+/* If true, add all comments immediately preceding one of the keywords. */
+bool add_all_comments = false;
 
 /* Tag used in comment of prevailing domain.  */
-static char *comment_tag;
+char *comment_tag;
 
 /* Name of default domain file.  If not set defaults to messages.po.  */
 static const char *default_domain;
@@ -129,10 +157,10 @@ static const char *package_version = NULL;
 static const char *msgid_bugs_address = NULL;
 
 /* String used as prefix for msgstr.  */
-static const char *msgstr_prefix;
+const char *msgstr_prefix;
 
 /* String used as suffix for msgstr.  */
-static const char *msgstr_suffix;
+const char *msgstr_suffix;
 
 /* Directory in which output files are created.  */
 static char *output_dir;
@@ -143,6 +171,9 @@ static catalog_output_format_ty output_syntax = &output_format_po;
 /* If nonzero omit header with information about this run.  */
 int xgettext_omit_header;
 
+/* Be more verbose.  */
+int verbose = 0;
+
 /* Table of flag_context_list_ty tables.  */
 static flag_context_list_table_ty flag_table_c;
 static flag_context_list_table_ty flag_table_cxx_qt;
@@ -150,22 +181,23 @@ static flag_context_list_table_ty flag_table_cxx_kde;
 static flag_context_list_table_ty flag_table_cxx_boost;
 static flag_context_list_table_ty flag_table_objc;
 static flag_context_list_table_ty flag_table_gcc_internal;
-static flag_context_list_table_ty flag_table_sh;
 static flag_context_list_table_ty flag_table_python;
+static flag_context_list_table_ty flag_table_java;
+static flag_context_list_table_ty flag_table_csharp;
+static flag_context_list_table_ty flag_table_javascript;
+static flag_context_list_table_ty flag_table_scheme;
 static flag_context_list_table_ty flag_table_lisp;
 static flag_context_list_table_ty flag_table_elisp;
 static flag_context_list_table_ty flag_table_librep;
-static flag_context_list_table_ty flag_table_scheme;
-static flag_context_list_table_ty flag_table_java;
-static flag_context_list_table_ty flag_table_csharp;
+static flag_context_list_table_ty flag_table_ruby;
+static flag_context_list_table_ty flag_table_sh;
 static flag_context_list_table_ty flag_table_awk;
-static flag_context_list_table_ty flag_table_ycp;
+static flag_context_list_table_ty flag_table_lua;
+static flag_context_list_table_ty flag_table_vala;
 static flag_context_list_table_ty flag_table_tcl;
 static flag_context_list_table_ty flag_table_perl;
 static flag_context_list_table_ty flag_table_php;
-static flag_context_list_table_ty flag_table_lua;
-static flag_context_list_table_ty flag_table_javascript;
-static flag_context_list_table_ty flag_table_vala;
+static flag_context_list_table_ty flag_table_ycp;
 
 /* If true, recognize Qt format strings.  */
 static bool recognize_format_qt;
@@ -176,31 +208,28 @@ static bool recognize_format_kde;
 /* If true, recognize Boost format strings.  */
 static bool recognize_format_boost;
 
-/* Canonicalized encoding name for all input files.  */
-const char *xgettext_global_source_encoding;
+/* Syntax checks enabled by default.  */
+enum is_syntax_check default_syntax_check[NSYNTAXCHECKS];
 
-#if HAVE_ICONV
-/* Converter from xgettext_global_source_encoding to UTF-8 (except from
-   ASCII or UTF-8, when this conversion is a no-op).  */
-iconv_t xgettext_global_source_iconv;
-#endif
+static locating_rule_list_ty *its_locating_rules;
 
-/* Canonicalized encoding name for the current input file.  */
-const char *xgettext_current_source_encoding;
+#define ITS_ROOT_UNTRANSLATABLE \
+  "<its:rules xmlns:its=\"http://www.w3.org/2005/11/its\"" \
+  "           version=\"2.0\">" \
+  "  <its:translateRule selector=\"/*\" translate=\"no\"/>" \
+  "</its:rules>"
 
-#if HAVE_ICONV
-/* Converter from xgettext_current_source_encoding to UTF-8 (except from
-   ASCII or UTF-8, when this conversion is a no-op).  */
-iconv_t xgettext_current_source_iconv;
-#endif
+/* If nonzero add comments used by itstool.  */
+static bool add_itstool_comments = false;
 
 /* Long options.  */
 static const struct option long_options[] =
 {
   { "add-comments", optional_argument, NULL, 'c' },
-  { "add-location", no_argument, &line_comment, 1 },
+  { "add-location", optional_argument, NULL, 'n' },
   { "boost", no_argument, NULL, CHAR_MAX + 11 },
   { "c++", no_argument, NULL, 'C' },
+  { "check", required_argument, NULL, CHAR_MAX + 17 },
   { "color", optional_argument, NULL, CHAR_MAX + 14 },
   { "copyright-holder", required_argument, NULL, CHAR_MAX + 1 },
   { "debug", no_argument, &do_debug, 1 },
@@ -216,6 +245,8 @@ static const struct option long_options[] =
   { "from-code", required_argument, NULL, CHAR_MAX + 3 },
   { "help", no_argument, NULL, 'h' },
   { "indent", no_argument, NULL, 'i' },
+  { "its", required_argument, NULL, CHAR_MAX + 20 },
+  { "itstool", no_argument, NULL, CHAR_MAX + 19 },
   { "join-existing", no_argument, NULL, 'j' },
   { "kde", no_argument, NULL, CHAR_MAX + 10 },
   { "keyword", optional_argument, NULL, 'k' },
@@ -224,7 +255,7 @@ static const struct option long_options[] =
   { "msgstr-prefix", optional_argument, NULL, 'm' },
   { "msgstr-suffix", optional_argument, NULL, 'M' },
   { "no-escape", no_argument, NULL, 'e' },
-  { "no-location", no_argument, &line_comment, 0 },
+  { "no-location", no_argument, NULL, CHAR_MAX + 16 },
   { "no-wrap", no_argument, NULL, CHAR_MAX + 4 },
   { "omit-header", no_argument, &xgettext_omit_header, 1 },
   { "output", required_argument, NULL, 'o' },
@@ -233,6 +264,7 @@ static const struct option long_options[] =
   { "package-version", required_argument, NULL, CHAR_MAX + 13 },
   { "properties-output", no_argument, NULL, CHAR_MAX + 6 },
   { "qt", no_argument, NULL, CHAR_MAX + 9 },
+  { "sentence-end", required_argument, NULL, CHAR_MAX + 18 },
   { "sort-by-file", no_argument, NULL, 'F' },
   { "sort-output", no_argument, NULL, 's' },
   { "strict", no_argument, NULL, 'S' },
@@ -240,40 +272,50 @@ static const struct option long_options[] =
   { "stringtable-output", no_argument, NULL, CHAR_MAX + 7 },
   { "style", required_argument, NULL, CHAR_MAX + 15 },
   { "trigraphs", no_argument, NULL, 'T' },
+  { "verbose", no_argument, NULL, 'v' },
   { "version", no_argument, NULL, 'V' },
-  { "width", required_argument, NULL, 'w', },
+  { "width", required_argument, NULL, 'w' },
   { NULL, 0, NULL, 0 }
 };
 
 
-/* The extractors must all be functions returning void and taking three
-   arguments designating the input stream and one message domain list argument
-   in which to add the messages.  */
-typedef void (*extractor_func) (FILE *fp, const char *real_filename,
-                                const char *logical_filename,
-                                flag_context_list_table_ty *flag_table,
-                                msgdomain_list_ty *mdlp);
+/* The extractors must all be functions returning void and taking as arguments
+   - the file name or file stream,
+   - the flag table,
+   - a message domain list argument in which to add the messages.
+   An extract_from_stream_func is preferred, because it supports extracting from
+   stdin.  */
+typedef void (*extract_from_stream_func) (FILE *fp, const char *real_filename,
+                                          const char *logical_filename,
+                                          flag_context_list_table_ty *flag_table,
+                                          msgdomain_list_ty *mdlp);
+typedef void (*extract_from_file_func) (const char *found_in_dir,
+                                        const char *real_filename,
+                                        const char *logical_filename,
+                                        flag_context_list_table_ty *flag_table,
+                                        msgdomain_list_ty *mdlp);
 
 typedef struct extractor_ty extractor_ty;
 struct extractor_ty
 {
-  extractor_func func;
+  extract_from_stream_func extract_from_stream;
+  extract_from_file_func extract_from_file;
   flag_context_list_table_ty *flag_table;
   struct formatstring_parser *formatstring_parser1;
   struct formatstring_parser *formatstring_parser2;
   struct formatstring_parser *formatstring_parser3;
+  struct formatstring_parser *formatstring_parser4;
 };
 
 
 /* Forward declaration of local functions.  */
-static void usage (int status)
-#if defined __GNUC__ && ((__GNUC__ == 2 && __GNUC_MINOR__ > 4) || __GNUC__ > 2)
-        __attribute__ ((noreturn))
-#endif
-;
+_GL_NORETURN_FUNC static void usage (int status);
 static void read_exclusion_file (char *file_name);
 static void extract_from_file (const char *file_name, extractor_ty extractor,
                                msgdomain_list_ty *mdlp);
+static void extract_from_xml_file (const char *file_name,
+                                   its_rule_list_ty *rules,
+                                   msgdomain_list_ty *mdlp);
 static message_ty *construct_header (void);
 static void finalize_header (msgdomain_list_ty *mdlp);
 static extractor_ty language_to_extractor (const char *name);
@@ -292,12 +334,15 @@ main (int argc, char *argv[])
   bool some_additional_keywords = false;
   bool sort_by_msgid = false;
   bool sort_by_filepos = false;
+  char **dirs;
+  char **its_dirs = NULL;
+  char *explicit_its_filename = NULL;
   const char *file_name;
   const char *files_from = NULL;
   string_list_ty *file_list;
   char *output_file = NULL;
   const char *language = NULL;
-  extractor_ty extractor = { NULL, NULL, NULL, NULL };
+  extractor_ty extractor = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
   int cnt;
   size_t i;
 
@@ -305,10 +350,8 @@ main (int argc, char *argv[])
   set_program_name (argv[0]);
   error_print_progname = maybe_print_progname;
 
-#ifdef HAVE_SETLOCALE
   /* Set locale via LC_ALL.  */
   setlocale (LC_ALL, "");
-#endif
 
   /* Set the text message domain.  */
   bindtextdomain (PACKAGE, relocate (LOCALEDIR));
@@ -320,29 +363,31 @@ main (int argc, char *argv[])
 
   /* Set initial value of variables.  */
   default_domain = MESSAGE_DOMAIN_DEFAULT;
-  xgettext_global_source_encoding = po_charset_ascii;
+  xgettext_global_source_encoding = NULL;
   init_flag_table_c ();
   init_flag_table_objc ();
-  init_flag_table_gcc_internal ();
-  init_flag_table_sh ();
+  init_flag_table_kde ();
   init_flag_table_python ();
+  init_flag_table_java ();
+  init_flag_table_csharp ();
+  init_flag_table_javascript ();
+  init_flag_table_scheme ();
   init_flag_table_lisp ();
   init_flag_table_elisp ();
   init_flag_table_librep ();
-  init_flag_table_scheme ();
-  init_flag_table_java ();
-  init_flag_table_csharp ();
+  init_flag_table_ruby ();
+  init_flag_table_sh ();
   init_flag_table_awk ();
-  init_flag_table_ycp ();
+  init_flag_table_lua ();
+  init_flag_table_vala ();
   init_flag_table_tcl ();
   init_flag_table_perl ();
   init_flag_table_php ();
-  init_flag_table_lua ();
-  init_flag_table_javascript ();
-  init_flag_table_vala ();
+  init_flag_table_gcc_internal ();
+  init_flag_table_ycp ();
 
   while ((optchar = getopt_long (argc, argv,
-                                 "ac::Cd:D:eEf:Fhijk::l:L:m::M::no:p:sTVw:x:",
+                                 "ac::Cd:D:eEf:Fhijk::l:L:m::M::no:p:sTvVw:W:x:",
                                  long_options, NULL)) != EOF)
     switch (optchar)
       {
@@ -363,7 +408,7 @@ main (int argc, char *argv[])
         x_tcl_extract_all ();
         x_perl_extract_all ();
         x_php_extract_all ();
-        x_glade_extract_all ();
+        x_ruby_extract_all ();
         x_lua_extract_all ();
         x_javascript_extract_all ();
         x_vala_extract_all ();
@@ -443,10 +488,11 @@ main (int argc, char *argv[])
         x_tcl_keyword (optarg);
         x_perl_keyword (optarg);
         x_php_keyword (optarg);
-        x_glade_keyword (optarg);
+        x_ruby_keyword (optarg);
         x_lua_keyword (optarg);
         x_javascript_keyword (optarg);
         x_vala_keyword (optarg);
+        x_desktop_keyword (optarg);
         if (optarg == NULL)
           no_default_keywords = true;
         else
@@ -472,7 +518,8 @@ main (int argc, char *argv[])
         break;
 
       case 'n':
-        line_comment = 1;
+        if (handle_filepos_comment_option (optarg))
+          usage (EXIT_FAILURE);
         break;
 
       case 'o':
@@ -505,6 +552,10 @@ main (int argc, char *argv[])
         x_c_trigraphs ();
         break;
 
+      case 'v':
+        verbose++;
+        break;
+
       case 'V':
         do_version = true;
         break;
@@ -534,7 +585,12 @@ main (int argc, char *argv[])
       case CHAR_MAX + 3:        /* --from-code */
         xgettext_global_source_encoding = po_charset_canonicalize (optarg);
         if (xgettext_global_source_encoding == NULL)
-          xgettext_global_source_encoding = po_charset_ascii;
+          {
+            multiline_warning (xasprintf (_("warning: ")),
+                               xasprintf (_("'%s' is not a valid encoding name.  Using ASCII as fallback.\n"),
+                                          optarg));
+            xgettext_global_source_encoding = po_charset_ascii;
+          }
         break;
 
       case CHAR_MAX + 4:        /* --no-wrap */
@@ -563,6 +619,7 @@ main (int argc, char *argv[])
 
       case CHAR_MAX + 10:       /* --kde */
         recognize_format_kde = true;
+        activate_additional_keywords_kde ();
         break;
 
       case CHAR_MAX + 11:       /* --boost */
@@ -586,6 +643,40 @@ main (int argc, char *argv[])
         handle_style_option (optarg);
         break;
 
+      case CHAR_MAX + 16: /* --no-location */
+        message_print_style_filepos (filepos_comment_none);
+        break;
+
+      case CHAR_MAX + 17: /* --check */
+        for (i = 0; i < NSYNTAXCHECKS; i++)
+          {
+            if (strcmp (optarg, syntax_check_name[i]) == 0)
+              {
+                default_syntax_check[i] = yes;
+                break;
+              }
+          }
+        if (i == NSYNTAXCHECKS)
+          error (EXIT_FAILURE, 0, _("syntax check '%s' unknown"), optarg);
+        break;
+
+      case CHAR_MAX + 18: /* --sentence-end */
+        if (strcmp (optarg, "single-space") == 0)
+          sentence_end_required_spaces = 1;
+        else if (strcmp (optarg, "double-space") == 0)
+          sentence_end_required_spaces = 2;
+        else
+          error (EXIT_FAILURE, 0, _("sentence end type '%s' unknown"), optarg);
+        break;
+
+      case CHAR_MAX + 20: /* --its */
+        explicit_its_filename = optarg;
+        break;
+
+      case CHAR_MAX + 19: /* --itstool */
+        add_itstool_comments = true;
+        break;
+
       default:
         usage (EXIT_FAILURE);
         /* NOTREACHED */
@@ -594,14 +685,15 @@ main (int argc, char *argv[])
   /* Version information requested.  */
   if (do_version)
     {
-      printf ("%s (GNU %s) %s\n", basename (program_name), PACKAGE, VERSION);
+      printf ("%s (GNU %s) %s\n", last_component (program_name),
+              PACKAGE, VERSION);
       /* xgettext: no-wrap */
       printf (_("Copyright (C) %s Free Software Foundation, Inc.\n\
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\n\
+License GPLv3+: GNU GPL version 3 or later <%s>\n\
 This is free software: you are free to change and redistribute it.\n\
 There is NO WARRANTY, to the extent permitted by law.\n\
 "),
-              "1995-1998, 2000-2010");
+              "1995-2023", "https://gnu.org/licenses/gpl.html");
       printf (_("Written by %s.\n"), proper_name ("Ulrich Drepper"));
       exit (EXIT_SUCCESS);
     }
@@ -611,10 +703,6 @@ There is NO WARRANTY, to the extent permitted by law.\n\
     usage (EXIT_SUCCESS);
 
   /* Verify selected options.  */
-  if (!line_comment && sort_by_filepos)
-    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
-           "--no-location", "--sort-by-file");
-
   if (sort_by_msgid && sort_by_filepos)
     error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
            "--sort-output", "--sort-by-file");
@@ -633,8 +721,8 @@ There is NO WARRANTY, to the extent permitted by law.\n\
            "--kde", "--boost");
 
   if (join_existing && strcmp (default_domain, "-") == 0)
-    error (EXIT_FAILURE, 0, _("\
---join-existing cannot be used when output is written to stdout"));
+    error (EXIT_FAILURE, 0,
+           _("--join-existing cannot be used when output is written to stdout"));
 
   if (no_default_keywords && !some_additional_keywords)
     {
@@ -650,6 +738,25 @@ xgettext cannot work without keywords to look for"));
       usage (EXIT_FAILURE);
     }
 
+  /* Explicit ITS file selection and language specification are
+     mutually exclusive.  */
+  if (explicit_its_filename != NULL && language != NULL)
+    error (EXIT_FAILURE, 0, _("%s and %s are mutually exclusive"),
+           "--its", "--language");
+
+  /* Warn when deprecated options are used.  */
+  if (sort_by_msgid)
+    error (EXIT_SUCCESS, 0, _("The option '%s' is deprecated."),
+           "--sort-output");
+
+  if (explicit_its_filename == NULL)
+    {
+      its_dirs = get_search_path ("its");
+      its_locating_rules = locating_rule_list_alloc ();
+      for (dirs = its_dirs; *dirs != NULL; dirs++)
+        locating_rule_list_add_from_directory (its_locating_rules, *dirs);
+    }
+
   /* Determine extractor from language.  */
   if (language != NULL)
     extractor = language_to_extractor (language);
@@ -660,24 +767,27 @@ xgettext cannot work without keywords to look for"));
   else if (msgstr_prefix == NULL && msgstr_suffix != NULL)
     msgstr_prefix = "";
 
-  /* Default output directory is the current directory.  */
-  if (output_dir == NULL)
-    output_dir = ".";
+  {
+    /* Default output directory is the current directory.  */
+    const char *defaulted_output_dir = (output_dir != NULL ? output_dir : ".");
 
-  /* Construct the name of the output file.  If the default domain has
-     the special name "-" we write to stdout.  */
-  if (output_file)
-    {
-      if (IS_ABSOLUTE_PATH (output_file) || strcmp (output_file, "-") == 0)
-        file_name = xstrdup (output_file);
-      else
-        /* Please do NOT add a .po suffix! */
-        file_name = xconcatenated_filename (output_dir, output_file, NULL);
-    }
-  else if (strcmp (default_domain, "-") == 0)
-    file_name = "-";
-  else
-    file_name = xconcatenated_filename (output_dir, default_domain, ".po");
+    /* Construct the name of the output file.  If the default domain has
+       the special name "-" we write to stdout.  */
+    if (output_file)
+      {
+        if (IS_RELATIVE_FILE_NAME (output_file) && strcmp (output_file, "-") != 0)
+          /* Please do NOT add a .po suffix! */
+          file_name =
+            xconcatenated_filename (defaulted_output_dir, output_file, NULL);
+        else
+          file_name = xstrdup (output_file);
+      }
+    else if (strcmp (default_domain, "-") == 0)
+      file_name = "-";
+    else
+      file_name =
+        xconcatenated_filename (defaulted_output_dir, default_domain, ".po");
+  }
 
   /* Determine list of files we have to process.  */
   if (files_from != NULL)
@@ -690,7 +800,8 @@ xgettext cannot work without keywords to look for"));
 
   /* Allocate converter from xgettext_global_source_encoding to UTF-8 (except
      from ASCII or UTF-8, when this conversion is a no-op).  */
-  if (xgettext_global_source_encoding != po_charset_ascii
+  if (xgettext_global_source_encoding != NULL
+      && xgettext_global_source_encoding != po_charset_ascii
       && xgettext_global_source_encoding != po_charset_utf8)
     {
 #if HAVE_ICONV
@@ -705,18 +816,16 @@ xgettext cannot work without keywords to look for"));
 # endif
       cd = iconv_open (po_charset_utf8, xgettext_global_source_encoding);
       if (cd == (iconv_t)(-1))
-        error (EXIT_FAILURE, 0, _("\
-Cannot convert from \"%s\" to \"%s\". %s relies on iconv(), \
-and iconv() does not support this conversion."),
+        error (EXIT_FAILURE, 0,
+               _("Cannot convert from \"%s\" to \"%s\". %s relies on iconv(), and iconv() does not support this conversion."),
                xgettext_global_source_encoding, po_charset_utf8,
-               basename (program_name));
+               last_component (program_name));
       xgettext_global_source_iconv = cd;
 #else
-      error (EXIT_FAILURE, 0, _("\
-Cannot convert from \"%s\" to \"%s\". %s relies on iconv(). \
-This version was built without iconv()."),
+      error (EXIT_FAILURE, 0,
+             _("Cannot convert from \"%s\" to \"%s\". %s relies on iconv(). This version was built without iconv()."),
              xgettext_global_source_encoding, po_charset_utf8,
-             basename (program_name));
+             last_component (program_name));
 #endif
     }
 
@@ -734,11 +843,12 @@ This version was built without iconv()."),
       /* Temporarily reset the directory list to empty, because file_name
          is an output file and therefore should not be searched for.  */
       void *saved_directory_list = dir_list_save_reset ();
-      extractor_ty po_extractor = { extract_po, NULL, NULL, NULL };
+      extractor_ty po_extractor =
+        { extract_po, NULL, NULL, NULL, NULL, NULL, NULL };
 
       extract_from_file (file_name, po_extractor, mdlp);
       if (!is_ascii_msgdomain_list (mdlp))
-        mdlp = iconv_msgdomain_list (mdlp, "UTF-8", true, file_name);
+        mdlp = iconv_msgdomain_list (mdlp, po_charset_utf8, true, file_name);
 
       dir_list_restore (saved_directory_list);
     }
@@ -748,17 +858,26 @@ This version was built without iconv()."),
     {
       const char *filename;
       extractor_ty this_file_extractor;
+      its_rule_list_ty *its_rules = NULL;
 
       filename = file_list->item[i];
 
-      if (extractor.func)
+      if (extractor.extract_from_stream || extractor.extract_from_file)
         this_file_extractor = extractor;
+      else if (explicit_its_filename != NULL)
+        {
+          its_rules = its_rule_list_alloc ();
+          if (!its_rule_list_add_from_file (its_rules,
+                                            explicit_its_filename))
+            error (EXIT_FAILURE, 0,
+                   _("warning: ITS rule file '%s' does not exist"),
+                   explicit_its_filename);
+        }
       else
         {
+          const char *language_from_extension = NULL;
           const char *base;
           char *reduced;
-          const char *extension;
-          const char *language;
 
           base = strrchr (filename, '/');
           if (!base)
@@ -766,33 +885,118 @@ This version was built without iconv()."),
 
           reduced = xstrdup (base);
           /* Remove a trailing ".in" - it's a generic suffix.  */
-          if (strlen (reduced) >= 3
-              && memcmp (reduced + strlen (reduced) - 3, ".in", 3) == 0)
+          while (strlen (reduced) >= 3
+                 && memcmp (reduced + strlen (reduced) - 3, ".in", 3) == 0)
             reduced[strlen (reduced) - 3] = '\0';
 
-          /* Work out what the file extension is.  */
-          extension = strrchr (reduced, '.');
-          if (extension)
-            ++extension;
-          else
-            extension = "";
-
-          /* Derive the language from the extension, and the extractor
-             function from the language.  */
-          language = extension_to_language (extension);
+          /* If no language is specified with -L, deduce it the extension.  */
           if (language == NULL)
             {
-              error (0, 0, _("\
-warning: file '%s' extension '%s' is unknown; will try C"), filename, extension);
-              language = "C";
+              const char *p;
+
+              /* Work out what the file extension is.  */
+              p = reduced + strlen (reduced);
+              for (; p > reduced && language_from_extension == NULL; p--)
+                {
+                  if (*p == '.')
+                    {
+                      const char *extension = p + 1;
+
+                      /* Derive the language from the extension, and
+                         the extractor function from the language.  */
+                      language_from_extension =
+                        extension_to_language (extension);
+                    }
+                }
             }
-          this_file_extractor = language_to_extractor (language);
+
+          /* If language is not determined from the file name
+             extension, check ITS locating rules.  */
+          if (language_from_extension == NULL
+              && strcmp (filename, "-") != 0)
+            {
+              const char *its_basename;
+
+              its_basename = locating_rule_list_locate (its_locating_rules,
+                                                        filename,
+                                                        language);
+
+              if (its_basename != NULL)
+                {
+                  size_t j;
+
+                  its_rules = its_rule_list_alloc ();
+
+                  /* If the ITS file is identified by the name,
+                     set the root element untranslatable.  */
+                  if (language != NULL)
+                    its_rule_list_add_from_string (its_rules,
+                                                   ITS_ROOT_UNTRANSLATABLE);
+
+                  for (j = 0; its_dirs[j] != NULL; j++)
+                    {
+                      char *its_filename =
+                        xconcatenated_filename (its_dirs[j], its_basename,
+                                                NULL);
+                      struct stat statbuf;
+
+                      if (stat (its_filename, &statbuf) == 0
+                          && its_rule_list_add_from_file (its_rules,
+                                                          its_filename))
+                        {
+                          /* The last element in its_dirs always points to
+                             the fallback directory.  */
+                          if (its_dirs[j + 1] == NULL)
+                            error (0, 0,
+                                   _("warning: a fallback ITS rule file '%s' is used; "
+                                     "it may not be in sync with the upstream"),
+                                   its_filename);
+                          free (its_filename);
+                          break;
+                        }
+                    }
+                  if (its_dirs[j] == NULL)
+                    {
+                      error (0, 0,
+                             _("warning: ITS rule file '%s' does not exist; check your gettext installation"),
+                             its_basename);
+                      its_rule_list_free (its_rules);
+                      its_rules = NULL;
+                    }
+                }
+            }
+
+          if (its_rules == NULL)
+            {
+              if (language_from_extension == NULL)
+                {
+                  const char *extension = strrchr (reduced, '.');
+                  if (extension == NULL)
+                    extension = "";
+                  else
+                    extension++;
+                  error (0, 0,
+                         _("warning: file '%s' extension '%s' is unknown; will try C"),
+                         filename, extension);
+                  language_from_extension = "C";
+                }
+
+              this_file_extractor =
+                language_to_extractor (language_from_extension);
+            }
 
           free (reduced);
         }
 
-      /* Extract the strings from the file.  */
-      extract_from_file (filename, this_file_extractor, mdlp);
+      if (its_rules != NULL)
+        {
+          /* Extract the strings from the file, using ITS.  */
+          extract_from_xml_file (filename, its_rules, mdlp);
+          its_rule_list_free (its_rules);
+        }
+      else
+        /* Extract the strings from the file.  */
+        extract_from_file (filename, this_file_extractor, mdlp);
     }
   string_list_free (file_list);
 
@@ -802,7 +1006,8 @@ warning: file '%s' extension '%s' is unknown; will try C"), filename, extension)
 
   /* Free the allocated converter.  */
 #if HAVE_ICONV
-  if (xgettext_global_source_encoding != po_charset_ascii
+  if (xgettext_global_source_encoding != NULL
+      && xgettext_global_source_encoding != po_charset_ascii
       && xgettext_global_source_encoding != po_charset_utf8)
     iconv_close (xgettext_global_source_iconv);
 #endif
@@ -813,8 +1018,36 @@ warning: file '%s' extension '%s' is unknown; will try C"), filename, extension)
   else if (sort_by_msgid)
     msgdomain_list_sort_by_msgid (mdlp);
 
+  /* Check syntax of messages.  */
+  {
+    int nerrors = 0;
+
+    for (i = 0; i < mdlp->nitems; i++)
+      {
+        message_list_ty *mlp = mdlp->item[i]->messages;
+        nerrors = syntax_check_message_list (mlp);
+      }
+
+    /* Exit with status 1 on any error.  */
+    if (nerrors > 0)
+      error (EXIT_FAILURE, 0,
+             ngettext ("found %d fatal error", "found %d fatal errors",
+                       nerrors),
+             nerrors);
+  }
+
   /* Write the PO file.  */
   msgdomain_list_print (mdlp, file_name, output_syntax, force_po, do_debug);
+
+  if (its_locating_rules)
+    locating_rule_list_free (its_locating_rules);
+
+  if (its_dirs != NULL)
+    {
+      for (i = 0; its_dirs[i] != NULL; i++)
+        free (its_dirs[i]);
+      free (its_dirs);
+    }
 
   exit (EXIT_SUCCESS);
 }
@@ -872,8 +1105,8 @@ Choice of input file language:\n"));
                                 (C, C++, ObjectiveC, PO, Shell, Python, Lisp,\n\
                                 EmacsLisp, librep, Scheme, Smalltalk, Java,\n\
                                 JavaProperties, C#, awk, YCP, Tcl, Perl, PHP,\n\
-                                GCC-source, NXStringTable, RST, Glade, Lua,\n\
-                                JavaScript, Vala)\n"));
+                                Ruby, GCC-source, NXStringTable, RST, RSJ,\n\
+                                Glade, Lua, JavaScript, Vala, Desktop)\n"));
       printf (_("\
   -C, --c++                   shorthand for --language=C++\n"));
       printf (_("\
@@ -898,6 +1131,14 @@ Operation mode:\n"));
                                 preceding keyword lines in output file\n\
   -c, --add-comments          place all comment blocks preceding keyword lines\n\
                                 in output file\n"));
+      printf (_("\
+      --check=NAME            perform syntax check on messages\n\
+                                (ellipsis-unicode, space-ellipsis,\n\
+                                 quote-unicode, bullet-unicode)\n"));
+      printf (_("\
+      --sentence-end=TYPE     type describing the end of sentence\n\
+                                (single-space, which is the default, \n\
+                                 or double-space)\n"));
       printf ("\n");
       printf (_("\
 Language specific options:\n"));
@@ -915,7 +1156,7 @@ Language specific options:\n"));
                                 (only languages C, C++, ObjectiveC, Shell,\n\
                                 Python, Lisp, EmacsLisp, librep, Scheme, Java,\n\
                                 C#, awk, Tcl, Perl, PHP, GCC-source, Glade,\n\
-                                Lua, JavaScript, Vala)\n"));
+                                Lua, JavaScript, Vala, Desktop)\n"));
       printf (_("\
       --flag=WORD:ARG:FLAG    additional flag for strings inside the argument\n\
                               number ARG of keyword WORD\n"));
@@ -928,6 +1169,10 @@ Language specific options:\n"));
   -T, --trigraphs             understand ANSI C trigraphs for input\n"));
       printf (_("\
                                 (only languages C, C++, ObjectiveC)\n"));
+      printf (_("\
+      --its=FILE              apply ITS rules from FILE\n"));
+      printf (_("\
+                                (only XML based languages)\n"));
       printf (_("\
       --qt                    recognize Qt format strings\n"));
       printf (_("\
@@ -970,12 +1215,14 @@ Output details:\n"));
       printf (_("\
       --stringtable-output    write out a NeXTstep/GNUstep .strings file\n"));
       printf (_("\
+      --itstool               write out itstool comments\n"));
+      printf (_("\
   -w, --width=NUMBER          set output page width\n"));
       printf (_("\
       --no-wrap               do not break long message lines, longer than\n\
                               the output page width, into several lines\n"));
       printf (_("\
-  -s, --sort-output           generate sorted output\n"));
+  -s, --sort-output           generate sorted output (deprecated)\n"));
       printf (_("\
   -F, --sort-by-file          sort output by file location\n"));
       printf (_("\
@@ -1003,13 +1250,19 @@ Informative output:\n"));
   -h, --help                  display this help and exit\n"));
       printf (_("\
   -V, --version               output version information and exit\n"));
+      printf (_("\
+  -v, --verbose               increase verbosity level\n"));
       printf ("\n");
-      /* TRANSLATORS: The placeholder indicates the bug-reporting address
-         for this package.  Please add _another line_ saying
+      /* TRANSLATORS: The first placeholder is the web address of the Savannah
+         project of this package.  The second placeholder is the bug-reporting
+         email address for this package.  Please add _another line_ saying
          "Report translation bugs to <...>\n" with the address for translation
          bugs (typically your translation team's web or email address).  */
-      fputs (_("Report bugs to <bug-gnu-gettext@gnu.org>.\n"),
-             stdout);
+      printf(_("\
+Report bugs in the bug tracker at <%s>\n\
+or by email to <%s>.\n"),
+             "https://savannah.gnu.org/projects/gettext",
+             "bug-gettext@gnu.org");
     }
 
   exit (status);
@@ -1088,320 +1341,11 @@ read_exclusion_file (char *filename)
   abstract_catalog_reader_ty *pop;
 
   pop = catalog_reader_alloc (&exclude_methods);
-  catalog_reader_parse (pop, fp, real_filename, filename, &input_format_po);
+  catalog_reader_parse (pop, fp, real_filename, filename, true, &input_format_po);
   catalog_reader_free (pop);
 
   if (fp != stdin)
     fclose (fp);
-}
-
-
-void
-split_keywordspec (const char *spec,
-                   const char **endp, struct callshape *shapep)
-{
-  const char *p;
-  int argnum1 = 0;
-  int argnum2 = 0;
-  int argnumc = 0;
-  bool argnum1_glib_context = false;
-  bool argnum2_glib_context = false;
-  int argtotal = 0;
-  string_list_ty xcomments;
-
-  string_list_init (&xcomments);
-
-  /* Start parsing from the end.  */
-  p = spec + strlen (spec);
-  while (p > spec)
-    {
-      if (isdigit ((unsigned char) p[-1])
-          || ((p[-1] == 'c' || p[-1] == 'g' || p[-1] == 't')
-              && p - 1 > spec && isdigit ((unsigned char) p[-2])))
-        {
-          bool contextp = (p[-1] == 'c');
-          bool glibp = (p[-1] == 'g');
-          bool totalp = (p[-1] == 't');
-
-          do
-            p--;
-          while (p > spec && isdigit ((unsigned char) p[-1]));
-
-          if (p > spec && (p[-1] == ',' || p[-1] == ':'))
-            {
-              char *dummy;
-              int arg = strtol (p, &dummy, 10);
-
-              if (contextp)
-                {
-                  if (argnumc != 0)
-                    /* Only one context argument can be given.  */
-                    break;
-                  argnumc = arg;
-                }
-              else if (totalp)
-                {
-                  if (argtotal != 0)
-                    /* Only one total number of arguments can be given.  */
-                    break;
-                  argtotal = arg;
-                }
-              else
-                {
-                  if (argnum2 != 0)
-                    /* At most two normal arguments can be given.  */
-                    break;
-                  argnum2 = argnum1;
-                  argnum2_glib_context = argnum1_glib_context;
-                  argnum1 = arg;
-                  argnum1_glib_context = glibp;
-                }
-            }
-          else
-            break;
-        }
-      else if (p[-1] == '"')
-        {
-          const char *xcomment_end;
-
-          p--;
-          xcomment_end = p;
-
-          while (p > spec && p[-1] != '"')
-            p--;
-
-          if (p > spec /* && p[-1] == '"' */)
-            {
-              const char *xcomment_start;
-
-              xcomment_start = p;
-              p--;
-              if (p > spec && (p[-1] == ',' || p[-1] == ':'))
-                {
-                  size_t xcomment_len = xcomment_end - xcomment_start;
-                  char *xcomment = XNMALLOC (xcomment_len + 1, char);
-
-                  memcpy (xcomment, xcomment_start, xcomment_len);
-                  xcomment[xcomment_len] = '\0';
-                  string_list_append (&xcomments, xcomment);
-                }
-              else
-                break;
-            }
-          else
-            break;
-        }
-      else
-        break;
-
-      /* Here an element of the comma-separated list has been parsed.  */
-      if (!(p > spec && (p[-1] == ',' || p[-1] == ':')))
-        abort ();
-      p--;
-      if (*p == ':')
-        {
-          size_t i;
-
-          if (argnum1 == 0 && argnum2 == 0)
-            /* At least one non-context argument must be given.  */
-            break;
-          if (argnumc != 0
-              && (argnum1_glib_context || argnum2_glib_context))
-            /* Incompatible ways to specify the context.  */
-            break;
-          *endp = p;
-          shapep->argnum1 = (argnum1 > 0 ? argnum1 : 1);
-          shapep->argnum2 = argnum2;
-          shapep->argnumc = argnumc;
-          shapep->argnum1_glib_context = argnum1_glib_context;
-          shapep->argnum2_glib_context = argnum2_glib_context;
-          shapep->argtotal = argtotal;
-          /* Reverse the order of the xcomments.  */
-          string_list_init (&shapep->xcomments);
-          for (i = xcomments.nitems; i > 0; )
-            string_list_append (&shapep->xcomments, xcomments.item[--i]);
-          string_list_destroy (&xcomments);
-          return;
-        }
-    }
-
-  /* Couldn't parse the desired syntax.  */
-  *endp = spec + strlen (spec);
-  shapep->argnum1 = 1;
-  shapep->argnum2 = 0;
-  shapep->argnumc = 0;
-  shapep->argnum1_glib_context = false;
-  shapep->argnum2_glib_context = false;
-  shapep->argtotal = 0;
-  string_list_init (&shapep->xcomments);
-  string_list_destroy (&xcomments);
-}
-
-
-void
-insert_keyword_callshape (hash_table *table,
-                          const char *keyword, size_t keyword_len,
-                          const struct callshape *shape)
-{
-  void *old_value;
-
-  if (hash_find_entry (table, keyword, keyword_len, &old_value))
-    {
-      /* Create a one-element 'struct callshapes'.  */
-      struct callshapes *shapes = XMALLOC (struct callshapes);
-      shapes->nshapes = 1;
-      shapes->shapes[0] = *shape;
-      keyword =
-        (const char *) hash_insert_entry (table, keyword, keyword_len, shapes);
-      if (keyword == NULL)
-        abort ();
-      shapes->keyword = keyword;
-      shapes->keyword_len = keyword_len;
-    }
-  else
-    {
-      /* Found a 'struct callshapes'.  See whether it already contains the
-         desired shape.  */
-      struct callshapes *old_shapes = (struct callshapes *) old_value;
-      bool found;
-      size_t i;
-
-      found = false;
-      for (i = 0; i < old_shapes->nshapes; i++)
-        if (old_shapes->shapes[i].argnum1 == shape->argnum1
-            && old_shapes->shapes[i].argnum2 == shape->argnum2
-            && old_shapes->shapes[i].argnumc == shape->argnumc
-            && old_shapes->shapes[i].argnum1_glib_context
-               == shape->argnum1_glib_context
-            && old_shapes->shapes[i].argnum2_glib_context
-               == shape->argnum2_glib_context
-            && old_shapes->shapes[i].argtotal == shape->argtotal)
-          {
-            old_shapes->shapes[i].xcomments = shape->xcomments;
-            found = true;
-            break;
-          }
-
-      if (!found)
-        {
-          /* Replace the existing 'struct callshapes' with a new one.  */
-          struct callshapes *shapes =
-            (struct callshapes *)
-            xmalloc (xsum (sizeof (struct callshapes),
-                           xtimes (old_shapes->nshapes,
-                                   sizeof (struct callshape))));
-
-          shapes->keyword = old_shapes->keyword;
-          shapes->keyword_len = old_shapes->keyword_len;
-          shapes->nshapes = old_shapes->nshapes + 1;
-          for (i = 0; i < old_shapes->nshapes; i++)
-            shapes->shapes[i] = old_shapes->shapes[i];
-          shapes->shapes[i] = *shape;
-          if (hash_set_value (table, keyword, keyword_len, shapes))
-            abort ();
-          free (old_shapes);
-        }
-    }
-}
-
-
-/* Null context.  */
-flag_context_ty null_context = { undecided, false, undecided, false };
-
-/* Transparent context.  */
-flag_context_ty passthrough_context = { undecided, true, undecided, true };
-
-
-flag_context_ty
-inherited_context (flag_context_ty outer_context,
-                   flag_context_ty modifier_context)
-{
-  flag_context_ty result = modifier_context;
-
-  if (result.pass_format1)
-    {
-      result.is_format1 = outer_context.is_format1;
-      result.pass_format1 = false;
-    }
-  if (result.pass_format2)
-    {
-      result.is_format2 = outer_context.is_format2;
-      result.pass_format2 = false;
-    }
-  if (result.pass_format3)
-    {
-      result.is_format3 = outer_context.is_format3;
-      result.pass_format3 = false;
-    }
-  return result;
-}
-
-
-/* Null context list iterator.  */
-flag_context_list_iterator_ty null_context_list_iterator = { 1, NULL };
-
-/* Transparent context list iterator.  */
-static flag_context_list_ty passthrough_context_circular_list =
-  {
-    1,
-    { undecided, true, undecided, true },
-    &passthrough_context_circular_list
-  };
-flag_context_list_iterator_ty passthrough_context_list_iterator =
-  {
-    1,
-    &passthrough_context_circular_list
-  };
-
-
-flag_context_list_iterator_ty
-flag_context_list_iterator (flag_context_list_ty *list)
-{
-  flag_context_list_iterator_ty result;
-
-  result.argnum = 1;
-  result.head = list;
-  return result;
-}
-
-
-flag_context_ty
-flag_context_list_iterator_advance (flag_context_list_iterator_ty *iter)
-{
-  if (iter->head == NULL)
-    return null_context;
-  if (iter->argnum == iter->head->argnum)
-    {
-      flag_context_ty result = iter->head->flags;
-
-      /* Special casing of circular list.  */
-      if (iter->head != iter->head->next)
-        {
-          iter->head = iter->head->next;
-          iter->argnum++;
-        }
-
-      return result;
-    }
-  else
-    {
-      iter->argnum++;
-      return null_context;
-    }
-}
-
-
-flag_context_list_ty *
-flag_context_list_table_lookup (flag_context_list_table_ty *flag_table,
-                                const void *key, size_t keylen)
-{
-  void *entry;
-
-  if (flag_table->table != NULL
-      && hash_find_entry (flag_table, key, keylen, &entry) == 0)
-    return (flag_context_list_ty *) entry;
-  else
-    return NULL;
 }
 
 
@@ -1435,134 +1379,12 @@ flag_context_list_table_insert (flag_context_list_table_ty *table,
         name_start += 2;
     }
 
-  /* Insert the pair (VALUE, PASS) at INDEX in the element numbered ARGNUM
-     of the list corresponding to NAME in the TABLE.  */
-  if (table->table == NULL)
-    hash_init (table, 100);
-  {
-    void *entry;
-
-    if (hash_find_entry (table, name_start, name_end - name_start, &entry) != 0)
-      {
-        /* Create new hash table entry.  */
-        flag_context_list_ty *list = XMALLOC (flag_context_list_ty);
-        list->argnum = argnum;
-        memset (&list->flags, '\0', sizeof (list->flags));
-        switch (index)
-          {
-          case 0:
-            list->flags.is_format1 = value;
-            list->flags.pass_format1 = pass;
-            break;
-          case 1:
-            list->flags.is_format2 = value;
-            list->flags.pass_format2 = pass;
-            break;
-          case 2:
-            list->flags.is_format3 = value;
-            list->flags.pass_format3 = pass;
-            break;
-          default:
-            abort ();
-          }
-        list->next = NULL;
-        hash_insert_entry (table, name_start, name_end - name_start, list);
-      }
-    else
-      {
-        flag_context_list_ty *list = (flag_context_list_ty *)entry;
-        flag_context_list_ty **lastp = NULL;
-        /* Invariant: list == (lastp != NULL ? *lastp : entry).  */
-
-        while (list != NULL && list->argnum < argnum)
-          {
-            lastp = &list->next;
-            list = *lastp;
-          }
-        if (list != NULL && list->argnum == argnum)
-          {
-            /* Add this flag to the current argument number.  */
-            switch (index)
-              {
-              case 0:
-                list->flags.is_format1 = value;
-                list->flags.pass_format1 = pass;
-                break;
-              case 1:
-                list->flags.is_format2 = value;
-                list->flags.pass_format2 = pass;
-                break;
-              case 2:
-                list->flags.is_format3 = value;
-                list->flags.pass_format3 = pass;
-                break;
-              default:
-                abort ();
-              }
-          }
-        else if (lastp != NULL)
-          {
-            /* Add a new list entry for this argument number.  */
-            list = XMALLOC (flag_context_list_ty);
-            list->argnum = argnum;
-            memset (&list->flags, '\0', sizeof (list->flags));
-            switch (index)
-              {
-              case 0:
-                list->flags.is_format1 = value;
-                list->flags.pass_format1 = pass;
-                break;
-              case 1:
-                list->flags.is_format2 = value;
-                list->flags.pass_format2 = pass;
-                break;
-              case 2:
-                list->flags.is_format3 = value;
-                list->flags.pass_format3 = pass;
-                break;
-              default:
-                abort ();
-              }
-            list->next = *lastp;
-            *lastp = list;
-          }
-        else
-          {
-            /* Add a new list entry for this argument number, at the beginning
-               of the list.  Since we don't have an API for replacing the
-               value of a key in the hash table, we have to copy the first
-               list element.  */
-            flag_context_list_ty *copy = XMALLOC (flag_context_list_ty);
-            *copy = *list;
-
-            list->argnum = argnum;
-            memset (&list->flags, '\0', sizeof (list->flags));
-            switch (index)
-              {
-              case 0:
-                list->flags.is_format1 = value;
-                list->flags.pass_format1 = pass;
-                break;
-              case 1:
-                list->flags.is_format2 = value;
-                list->flags.pass_format2 = pass;
-                break;
-              case 2:
-                list->flags.is_format3 = value;
-                list->flags.pass_format3 = pass;
-                break;
-              default:
-                abort ();
-              }
-            list->next = copy;
-          }
-      }
-  }
+  flag_context_list_table_add (table, index, name_start, name_end,
+                               argnum, value, pass);
 
   if (allocated_name != NULL)
     freea (allocated_name);
 }
-
 
 void
 xgettext_record_flag (const char *optionstring)
@@ -1593,7 +1415,9 @@ xgettext_record_flag (const char *optionstring)
     const char *name_end = colon1;
     const char *argnum_start = colon1 + 1;
     const char *argnum_end = colon2;
-    const char *flag = colon2 + 1;
+    const char *flag_start = colon2 + 1;
+    const char *flag_end;
+    const char *backend;
     int argnum;
 
     /* Check the parts' syntax.  */
@@ -1610,29 +1434,38 @@ xgettext_record_flag (const char *optionstring)
     if (argnum <= 0)
       goto err;
 
+    flag_end = strchr (flag_start, '!');
+    if (flag_end != NULL)
+      backend = flag_end + 1;
+    else
+      {
+        flag_end = flag_start + strlen (flag_start);
+        backend = NULL;
+      }
+
     /* Analyze the flag part.  */
     {
       bool pass;
 
       pass = false;
-      if (strlen (flag) >= 5 && memcmp (flag, "pass-", 5) == 0)
+      if (flag_end - flag_start >= 5 && memcmp (flag_start, "pass-", 5) == 0)
         {
           pass = true;
-          flag += 5;
+          flag_start += 5;
         }
 
-      /* Unlike po_parse_comment_special(), we don't accept "fuzzy" or "wrap"
-         here - it has no sense.  */
-      if (strlen (flag) >= 7
-          && memcmp (flag + strlen (flag) - 7, "-format", 7) == 0)
+      /* Unlike po_parse_comment_special(), we don't accept "fuzzy",
+         "wrap", or "check" here - it has no sense.  */
+      if (flag_end - flag_start >= 7
+          && memcmp (flag_end - 7, "-format", 7) == 0)
         {
           const char *p;
           size_t n;
           enum is_format value;
           size_t type;
 
-          p = flag;
-          n = strlen (flag) - 7;
+          p = flag_start;
+          n = flag_end - flag_start - 7;
 
           if (n >= 3 && memcmp (p, "no-", 3) == 0)
             {
@@ -1659,32 +1492,67 @@ xgettext_record_flag (const char *optionstring)
             if (strlen (format_language[type]) == n
                 && memcmp (format_language[type], p, n) == 0)
               {
+                /* This dispatch does the reverse mapping of all the SCANNERS_*
+                   macros defined in the x-*.h files.  For example,
+                   SCANNERS_JAVA contains an entry
+                     { ...,
+                       &flag_table_java,
+                       &formatstring_java, &formatstring_java_printf
+                     }
+                   Therefore here, we have to associate
+                     format_java          with   flag_table_java at index 0,
+                     format_java_printf   with   flag_table_java at index 1.  */
                 switch (type)
                   {
                   case format_c:
-                    flag_context_list_table_insert (&flag_table_c, 0,
+                    if (backend == NULL || strcmp (backend, "C") == 0
+                        || strcmp (backend, "C++") == 0)
+                      {
+                        flag_context_list_table_insert (&flag_table_c, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                      }
+                    if (backend == NULL || strcmp (backend, "C++") == 0)
+                      {
+                        flag_context_list_table_insert (&flag_table_cxx_qt, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                        flag_context_list_table_insert (&flag_table_cxx_kde, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                        flag_context_list_table_insert (&flag_table_cxx_boost, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                      }
+                    if (backend == NULL || strcmp (backend, "ObjectiveC") == 0)
+                      {
+                        flag_context_list_table_insert (&flag_table_objc, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                      }
+                    if (backend == NULL || strcmp (backend, "Vala") == 0)
+                      {
+                        flag_context_list_table_insert (&flag_table_vala, 0,
+                                                        name_start, name_end,
+                                                        argnum, value, pass);
+                      }
+                    break;
+                  case format_cplusplus_brace:
+                    flag_context_list_table_insert (&flag_table_c, 1,
                                                     name_start, name_end,
                                                     argnum, value, pass);
-                    flag_context_list_table_insert (&flag_table_cxx_qt, 0,
+                    flag_context_list_table_insert (&flag_table_cxx_qt, 1,
                                                     name_start, name_end,
                                                     argnum, value, pass);
-                    flag_context_list_table_insert (&flag_table_cxx_kde, 0,
+                    flag_context_list_table_insert (&flag_table_cxx_kde, 1,
                                                     name_start, name_end,
                                                     argnum, value, pass);
-                    flag_context_list_table_insert (&flag_table_cxx_boost, 0,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    flag_context_list_table_insert (&flag_table_objc, 0,
+                    flag_context_list_table_insert (&flag_table_cxx_boost, 1,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
                   case format_objc:
                     flag_context_list_table_insert (&flag_table_objc, 1,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_sh:
-                    flag_context_list_table_insert (&flag_table_sh, 0,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
@@ -1694,7 +1562,32 @@ xgettext_record_flag (const char *optionstring)
                                                     argnum, value, pass);
                     break;
                   case format_python_brace:
-                    flag_context_list_table_insert (&flag_table_python, 0,
+                    flag_context_list_table_insert (&flag_table_python, 1,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_java:
+                    flag_context_list_table_insert (&flag_table_java, 0,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_java_printf:
+                    flag_context_list_table_insert (&flag_table_java, 1,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_csharp:
+                    flag_context_list_table_insert (&flag_table_csharp, 0,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_javascript:
+                    flag_context_list_table_insert (&flag_table_javascript, 0,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_scheme:
+                    flag_context_list_table_insert (&flag_table_scheme, 0,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
@@ -1713,20 +1606,13 @@ xgettext_record_flag (const char *optionstring)
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
-                  case format_scheme:
-                    flag_context_list_table_insert (&flag_table_scheme, 0,
+                  case format_ruby:
+                    flag_context_list_table_insert (&flag_table_ruby, 0,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
-                  case format_smalltalk:
-                    break;
-                  case format_java:
-                    flag_context_list_table_insert (&flag_table_java, 0,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_csharp:
-                    flag_context_list_table_insert (&flag_table_csharp, 0,
+                  case format_sh:
+                    flag_context_list_table_insert (&flag_table_sh, 0,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
@@ -1735,10 +1621,37 @@ xgettext_record_flag (const char *optionstring)
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
+                  case format_lua:
+                    flag_context_list_table_insert (&flag_table_lua, 0,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
                   case format_pascal:
                     break;
-                  case format_ycp:
-                    flag_context_list_table_insert (&flag_table_ycp, 0,
+                  case format_smalltalk:
+                    break;
+                  case format_qt:
+                    flag_context_list_table_insert (&flag_table_cxx_qt, 2,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_qt_plural:
+                    flag_context_list_table_insert (&flag_table_cxx_qt, 3,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_kde:
+                    flag_context_list_table_insert (&flag_table_cxx_kde, 2,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_kde_kuit:
+                    flag_context_list_table_insert (&flag_table_cxx_kde, 3,
+                                                    name_start, name_end,
+                                                    argnum, value, pass);
+                    break;
+                  case format_boost:
+                    flag_context_list_table_insert (&flag_table_cxx_boost, 2,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
@@ -1772,33 +1685,8 @@ xgettext_record_flag (const char *optionstring)
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
-                  case format_qt:
-                    flag_context_list_table_insert (&flag_table_cxx_qt, 1,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_qt_plural:
-                    flag_context_list_table_insert (&flag_table_cxx_qt, 2,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_kde:
-                    flag_context_list_table_insert (&flag_table_cxx_kde, 1,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_boost:
-                    flag_context_list_table_insert (&flag_table_cxx_boost, 1,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_lua:
-                    flag_context_list_table_insert (&flag_table_lua, 0,
-                                                    name_start, name_end,
-                                                    argnum, value, pass);
-                    break;
-                  case format_javascript:
-                    flag_context_list_table_insert (&flag_table_javascript, 0,
+                  case format_ycp:
+                    flag_context_list_table_insert (&flag_table_ycp, 0,
                                                     name_start, name_end,
                                                     argnum, value, pass);
                     break;
@@ -1814,8 +1702,8 @@ xgettext_record_flag (const char *optionstring)
   }
 
 err:
-  error (EXIT_FAILURE, 0, _("\
-A --flag argument doesn't have the <keyword>:<argnum>:[pass-]<flag> syntax: %s"),
+  error (EXIT_FAILURE, 0,
+         _("A --flag argument doesn't have the <keyword>:<argnum>:[pass-]<flag> syntax: %s"),
          optionstring);
 }
 
@@ -1833,7 +1721,7 @@ xgettext_comment_add (const char *str)
   string_list_append (comment, str);
 }
 
-static const char *
+const char *
 xgettext_comment (size_t n)
 {
   if (comment == NULL || n >= comment->nitems)
@@ -1841,8 +1729,8 @@ xgettext_comment (size_t n)
   return comment->item[n];
 }
 
-static void
-xgettext_comment_reset ()
+void
+xgettext_comment_reset (void)
 {
   if (comment != NULL)
     {
@@ -1888,7 +1776,7 @@ savable_comment_reset ()
   savable_comment = NULL;
 }
 
-static void
+void
 savable_comment_to_xgettext_comment (refcounted_string_list_ty *rslp)
 {
   xgettext_comment_reset ();
@@ -1902,6 +1790,75 @@ savable_comment_to_xgettext_comment (refcounted_string_list_ty *rslp)
 }
 
 
+/* xgettext_find_file and xgettext_open look up a file, taking into account
+   the --directory options.
+   xgettext_find_file merely returns the file name and the directory in which
+   it was found.  This function is useful for parsers implemented as separate
+   programs.
+   xgettext_open returns the open file stream.  This function is useful for
+   built-in parsers.  */
+
+static void
+xgettext_find_file (const char *fn,
+                    char **logical_file_name_p,
+                    const char **found_in_dir_p,
+                    char **real_file_name_p)
+{
+  char *new_name;
+  const char *found_in_dir;
+  char *logical_file_name;
+  struct stat statbuf;
+
+  found_in_dir = NULL;
+
+  /* We cannot handle "-" here.  "/dev/fd/0" is not portable, and it cannot
+     be opened multiple times.  */
+  if (IS_RELATIVE_FILE_NAME (fn))
+    {
+      int j;
+
+      for (j = 0; ; ++j)
+        {
+          const char *dir = dir_list_nth (j);
+
+          if (dir == NULL)
+            error (EXIT_FAILURE, ENOENT,
+                   _("error while opening \"%s\" for reading"), fn);
+
+          new_name = xconcatenated_filename (dir, fn, NULL);
+
+          if (stat (new_name, &statbuf) == 0)
+            {
+              found_in_dir = dir;
+              break;
+            }
+
+          if (errno != ENOENT)
+            error (EXIT_FAILURE, errno,
+                   _("error while opening \"%s\" for reading"), new_name);
+          free (new_name);
+        }
+
+      /* Note that the NEW_NAME variable contains the actual file name
+         and the logical file name is what is reported by xgettext.  In
+         this case NEW_NAME is set to the file which was found along the
+         directory search path, and LOGICAL_FILE_NAME is is set to the
+         file name which was searched for.  */
+      logical_file_name = xstrdup (fn);
+    }
+  else
+    {
+      new_name = xstrdup (fn);
+      if (stat (fn, &statbuf) != 0)
+        error (EXIT_FAILURE, errno,
+               _("error while opening \"%s\" for reading"), fn);
+      logical_file_name = xstrdup (new_name);
+    }
+
+  *logical_file_name_p = logical_file_name;
+  *found_in_dir_p = found_in_dir;
+  *real_file_name_p = new_name;
+}
 
 static FILE *
 xgettext_open (const char *fn,
@@ -1917,16 +1874,7 @@ xgettext_open (const char *fn,
       logical_file_name = xstrdup (new_name);
       fp = stdin;
     }
-  else if (IS_ABSOLUTE_PATH (fn))
-    {
-      new_name = xstrdup (fn);
-      fp = fopen (fn, "r");
-      if (fp == NULL)
-        error (EXIT_FAILURE, errno, _("\
-error while opening \"%s\" for reading"), fn);
-      logical_file_name = xstrdup (new_name);
-    }
-  else
+  else if (IS_RELATIVE_FILE_NAME (fn))
     {
       int j;
 
@@ -1935,8 +1883,8 @@ error while opening \"%s\" for reading"), fn);
           const char *dir = dir_list_nth (j);
 
           if (dir == NULL)
-            error (EXIT_FAILURE, ENOENT, _("\
-error while opening \"%s\" for reading"), fn);
+            error (EXIT_FAILURE, ENOENT,
+                   _("error while opening \"%s\" for reading"), fn);
 
           new_name = xconcatenated_filename (dir, fn, NULL);
 
@@ -1945,8 +1893,8 @@ error while opening \"%s\" for reading"), fn);
             break;
 
           if (errno != ENOENT)
-            error (EXIT_FAILURE, errno, _("\
-error while opening \"%s\" for reading"), new_name);
+            error (EXIT_FAILURE, errno,
+                   _("error while opening \"%s\" for reading"), new_name);
           free (new_name);
         }
 
@@ -1957,6 +1905,15 @@ error while opening \"%s\" for reading"), new_name);
          file name which was searched for.  */
       logical_file_name = xstrdup (fn);
     }
+  else
+    {
+      new_name = xstrdup (fn);
+      fp = fopen (fn, "r");
+      if (fp == NULL)
+        error (EXIT_FAILURE, errno,
+               _("error while opening \"%s\" for reading"), fn);
+      logical_file_name = xstrdup (new_name);
+    }
 
   *logical_file_name_p = logical_file_name;
   *real_file_name_p = new_name;
@@ -1966,9 +1923,10 @@ error while opening \"%s\" for reading"), new_name);
 
 /* Language dependent format string parser.
    NULL if the language has no notion of format strings.  */
-static struct formatstring_parser *current_formatstring_parser1;
-static struct formatstring_parser *current_formatstring_parser2;
-static struct formatstring_parser *current_formatstring_parser3;
+struct formatstring_parser *current_formatstring_parser1;
+struct formatstring_parser *current_formatstring_parser2;
+struct formatstring_parser *current_formatstring_parser3;
+struct formatstring_parser *current_formatstring_parser4;
 
 
 static void
@@ -1977,20 +1935,103 @@ extract_from_file (const char *file_name, extractor_ty extractor,
 {
   char *logical_file_name;
   char *real_file_name;
-  FILE *fp = xgettext_open (file_name, &logical_file_name, &real_file_name);
-
-  /* Set the default for the source file encoding.  May be overridden by
-     the extractor function.  */
-  xgettext_current_source_encoding = xgettext_global_source_encoding;
-#if HAVE_ICONV
-  xgettext_current_source_iconv = xgettext_global_source_iconv;
-#endif
 
   current_formatstring_parser1 = extractor.formatstring_parser1;
   current_formatstring_parser2 = extractor.formatstring_parser2;
   current_formatstring_parser3 = extractor.formatstring_parser3;
-  extractor.func (fp, real_file_name, logical_file_name, extractor.flag_table,
-                  mdlp);
+  current_formatstring_parser4 = extractor.formatstring_parser4;
+
+  if (extractor.extract_from_stream)
+    {
+      FILE *fp = xgettext_open (file_name, &logical_file_name, &real_file_name);
+
+      /* Set the default for the source file encoding.  May be overridden by
+         the extractor function.  */
+      xgettext_current_source_encoding =
+        (xgettext_global_source_encoding != NULL ? xgettext_global_source_encoding :
+         po_charset_ascii);
+#if HAVE_ICONV
+      xgettext_current_source_iconv = xgettext_global_source_iconv;
+#endif
+
+      extractor.extract_from_stream (fp, real_file_name, logical_file_name,
+                                     extractor.flag_table, mdlp);
+
+      if (fp != stdin)
+        fclose (fp);
+    }
+  else
+    {
+      const char *found_in_dir;
+      xgettext_find_file (file_name, &logical_file_name,
+                          &found_in_dir, &real_file_name);
+
+      extractor.extract_from_file (found_in_dir, real_file_name,
+                                   logical_file_name,
+                                   extractor.flag_table, mdlp);
+    }
+  free (logical_file_name);
+  free (real_file_name);
+
+  current_formatstring_parser1 = NULL;
+  current_formatstring_parser2 = NULL;
+  current_formatstring_parser3 = NULL;
+  current_formatstring_parser4 = NULL;
+}
+
+static message_ty *
+xgettext_its_extract_callback (message_list_ty *mlp,
+                               const char *msgctxt,
+                               const char *msgid,
+                               lex_pos_ty *pos,
+                               const char *extracted_comment,
+                               const char *marker,
+                               enum its_whitespace_type_ty whitespace)
+{
+  message_ty *message;
+
+  message = remember_a_message (mlp,
+                                msgctxt == NULL ? NULL : xstrdup (msgctxt),
+                                xstrdup (msgid),
+                                false, false,
+                                null_context, pos,
+                                extracted_comment, NULL, false);
+
+  if (add_itstool_comments)
+    {
+      char *dot = xasprintf ("(itstool) path: %s", marker);
+      message_comment_dot_append (message, dot);
+      free (dot);
+
+      if (whitespace == ITS_WHITESPACE_PRESERVE)
+        message->do_wrap = no;
+    }
+
+  return message;
+}
+
+static void
+extract_from_xml_file (const char *file_name,
+                       its_rule_list_ty *rules,
+                       msgdomain_list_ty *mdlp)
+{
+  char *logical_file_name;
+  char *real_file_name;
+  FILE *fp = xgettext_open (file_name, &logical_file_name, &real_file_name);
+
+  /* The default encoding for XML is UTF-8.  It can be overridden by
+     an XML declaration in the XML file itself, not through the
+     --from-code option.  */
+  xgettext_current_source_encoding = po_charset_utf8;
+
+#if HAVE_ICONV
+  xgettext_current_source_iconv = xgettext_global_source_iconv;
+#endif
+
+  its_rule_list_extract (rules, fp, real_file_name, logical_file_name,
+                         NULL,
+                         mdlp,
+                         xgettext_its_extract_callback);
 
   if (fp != stdin)
     fclose (fp);
@@ -1999,1030 +2040,11 @@ extract_from_file (const char *file_name, extractor_ty extractor,
 }
 
 
-
-/* Error message about non-ASCII character in a specific lexical context.  */
-char *
-non_ascii_error_message (lexical_context_ty lcontext,
-                         const char *file_name, size_t line_number)
-{
-  char buffer[21];
-  char *errmsg;
-
-  if (line_number == (size_t)(-1))
-    buffer[0] = '\0';
-  else
-    sprintf (buffer, ":%ld", (long) line_number);
-
-  switch (lcontext)
-    {
-    case lc_outside:
-      errmsg =
-        xasprintf (_("Non-ASCII character at %s%s."), file_name, buffer);
-      break;
-    case lc_comment:
-      errmsg =
-        xasprintf (_("Non-ASCII comment at or before %s%s."),
-                   file_name, buffer);
-      break;
-    case lc_string:
-      errmsg =
-        xasprintf (_("Non-ASCII string at %s%s."), file_name, buffer);
-      break;
-    default:
-      abort ();
-    }
-  return errmsg;
-}
-
-/* Convert the given string from xgettext_current_source_encoding to
-   the output file encoding (i.e. ASCII or UTF-8).
-   The resulting string is either the argument string, or freshly allocated.
-   The file_name and line_number are only used for error message purposes.  */
-char *
-from_current_source_encoding (const char *string,
-                              lexical_context_ty lcontext,
-                              const char *file_name, size_t line_number)
-{
-  if (xgettext_current_source_encoding == po_charset_ascii)
-    {
-      if (!is_ascii_string (string))
-        {
-          multiline_error (xstrdup (""),
-                           xasprintf ("%s\n%s\n",
-                                      non_ascii_error_message (lcontext,
-                                                               file_name,
-                                                               line_number),
-                                      _("\
-Please specify the source encoding through --from-code.")));
-          exit (EXIT_FAILURE);
-        }
-    }
-  else if (xgettext_current_source_encoding != po_charset_utf8)
-    {
-#if HAVE_ICONV
-      struct conversion_context context;
-
-      context.from_code = xgettext_current_source_encoding;
-      context.to_code = po_charset_utf8;
-      context.from_filename = file_name;
-      context.message = NULL;
-
-      string = convert_string_directly (xgettext_current_source_iconv, string,
-                                        &context);
-#else
-      /* If we don't have iconv(), the only supported values for
-         xgettext_global_source_encoding and thus also for
-         xgettext_current_source_encoding are ASCII and UTF-8.
-         convert_string_directly() should not be called in this case.  */
-      abort ();
-#endif
-    }
-
-  return (char *) string;
-}
-
-#define CONVERT_STRING(string, lcontext) \
-  string = from_current_source_encoding (string, lcontext, pos->file_name, \
-                                         pos->line_number);
-
-
-/* Update the is_format[] flags depending on the information given in the
-   context.  */
-static void
-set_format_flags_from_context (enum is_format is_format[NFORMATS],
-                               flag_context_ty context, const char *string,
-                               lex_pos_ty *pos, const char *pretty_msgstr)
-{
-  size_t i;
-
-  if (context.is_format1 != undecided
-      || context.is_format2 != undecided
-      || context.is_format3 != undecided)
-    for (i = 0; i < NFORMATS; i++)
-      {
-        if (is_format[i] == undecided)
-          {
-            if (formatstring_parsers[i] == current_formatstring_parser1
-                && context.is_format1 != undecided)
-              is_format[i] = (enum is_format) context.is_format1;
-            if (formatstring_parsers[i] == current_formatstring_parser2
-                && context.is_format2 != undecided)
-              is_format[i] = (enum is_format) context.is_format2;
-            if (formatstring_parsers[i] == current_formatstring_parser3
-                && context.is_format3 != undecided)
-              is_format[i] = (enum is_format) context.is_format3;
-          }
-        if (possible_format_p (is_format[i]))
-          {
-            struct formatstring_parser *parser = formatstring_parsers[i];
-            char *invalid_reason = NULL;
-            void *descr = parser->parse (string, false, NULL, &invalid_reason);
-
-            if (descr != NULL)
-              parser->free (descr);
-            else
-              {
-                /* The string is not a valid format string.  */
-                if (is_format[i] != possible)
-                  {
-                    char buffer[21];
-
-                    error_with_progname = false;
-                    if (pos->line_number == (size_t)(-1))
-                      buffer[0] = '\0';
-                    else
-                      sprintf (buffer, ":%ld", (long) pos->line_number);
-                    multiline_warning (xasprintf (_("%s%s: warning: "),
-                                                  pos->file_name, buffer),
-                                       xasprintf (is_format[i] == yes_according_to_context
-                                                  ? _("Although being used in a format string position, the %s is not a valid %s format string. Reason: %s\n")
-                                                  : _("Although declared as such, the %s is not a valid %s format string. Reason: %s\n"),
-                                                  pretty_msgstr,
-                                                  format_language_pretty[i],
-                                                  invalid_reason));
-                    error_with_progname = true;
-                  }
-
-                is_format[i] = impossible;
-                free (invalid_reason);
-              }
-          }
-      }
-}
-
-
-static void
-warn_format_string (enum is_format is_format[NFORMATS], const char *string,
-                    lex_pos_ty *pos, const char *pretty_msgstr)
-{
-  if (possible_format_p (is_format[format_python])
-      && get_python_format_unnamed_arg_count (string) > 1)
-    {
-      char buffer[21];
-
-      error_with_progname = false;
-      if (pos->line_number == (size_t)(-1))
-        buffer[0] = '\0';
-      else
-        sprintf (buffer, ":%ld", (long) pos->line_number);
-      multiline_warning (xasprintf (_("%s%s: warning: "),
-                                    pos->file_name, buffer),
-                         xasprintf (_("\
-'%s' format string with unnamed arguments cannot be properly localized:\n\
-The translator cannot reorder the arguments.\n\
-Please consider using a format string with named arguments,\n\
-and a mapping instead of a tuple for the arguments.\n"),
-                                    pretty_msgstr));
-      error_with_progname = true;
-    }
-}
-
-
-message_ty *
-remember_a_message (message_list_ty *mlp, char *msgctxt, char *msgid,
-                    flag_context_ty context, lex_pos_ty *pos,
-                    const char *extracted_comment,
-                    refcounted_string_list_ty *comment)
-{
-  enum is_format is_format[NFORMATS];
-  struct argument_range range;
-  enum is_wrap do_wrap;
-  message_ty *mp;
-  char *msgstr;
-  size_t i;
-
-  /* See whether we shall exclude this message.  */
-  if (exclude != NULL && message_list_search (exclude, msgctxt, msgid) != NULL)
-    {
-      /* Tell the lexer to reset its comment buffer, so that the next
-         message gets the correct comments.  */
-      xgettext_comment_reset ();
-      savable_comment_reset ();
-
-      if (msgctxt != NULL)
-        free (msgctxt);
-      free (msgid);
-
-      return NULL;
-    }
-
-  savable_comment_to_xgettext_comment (comment);
-
-  for (i = 0; i < NFORMATS; i++)
-    is_format[i] = undecided;
-  range.min = -1;
-  range.max = -1;
-  do_wrap = undecided;
-
-  if (msgctxt != NULL)
-    CONVERT_STRING (msgctxt, lc_string);
-  CONVERT_STRING (msgid, lc_string);
-
-  if (msgctxt == NULL && msgid[0] == '\0' && !xgettext_omit_header)
-    {
-      char buffer[21];
-
-      error_with_progname = false;
-      if (pos->line_number == (size_t)(-1))
-        buffer[0] = '\0';
-      else
-        sprintf (buffer, ":%ld", (long) pos->line_number);
-      multiline_warning (xasprintf (_("%s%s: warning: "), pos->file_name,
-                                    buffer),
-                         xstrdup (_("\
-Empty msgid.  It is reserved by GNU gettext:\n\
-gettext(\"\") returns the header entry with\n\
-meta information, not the empty string.\n")));
-      error_with_progname = true;
-    }
-
-  /* See if we have seen this message before.  */
-  mp = message_list_search (mlp, msgctxt, msgid);
-  if (mp != NULL)
-    {
-      if (msgctxt != NULL)
-        free (msgctxt);
-      free (msgid);
-      for (i = 0; i < NFORMATS; i++)
-        is_format[i] = mp->is_format[i];
-      do_wrap = mp->do_wrap;
-    }
-  else
-    {
-      /* Construct the msgstr from the prefix and suffix, otherwise use the
-         empty string.  */
-      if (msgstr_prefix)
-        msgstr = xasprintf ("%s%s%s", msgstr_prefix, msgid, msgstr_suffix);
-      else
-        msgstr = "";
-
-      /* Allocate a new message and append the message to the list.  */
-      mp = message_alloc (msgctxt, msgid, NULL, msgstr, strlen (msgstr) + 1,
-                          pos);
-      /* Do not free msgctxt and msgid.  */
-      message_list_append (mlp, mp);
-    }
-
-  /* Determine whether the context specifies that the msgid is a format
-     string.  */
-  set_format_flags_from_context (is_format, context, mp->msgid, pos, "msgid");
-
-  /* Ask the lexer for the comments it has seen.  */
-  {
-    size_t nitems_before;
-    size_t nitems_after;
-    int j;
-    bool add_all_remaining_comments;
-
-    nitems_before = (mp->comment_dot != NULL ? mp->comment_dot->nitems : 0);
-
-    if (extracted_comment != NULL)
-      message_comment_dot_append (mp, extracted_comment);
-
-    add_all_remaining_comments = add_all_comments;
-    for (j = 0; ; ++j)
-      {
-        const char *s = xgettext_comment (j);
-        const char *t;
-        if (s == NULL)
-          break;
-
-        CONVERT_STRING (s, lc_comment);
-
-        /* To reduce the possibility of unwanted matches we do a two
-           step match: the line must contain 'xgettext:' and one of
-           the possible format description strings.  */
-        if ((t = c_strstr (s, "xgettext:")) != NULL)
-          {
-            bool tmp_fuzzy;
-            enum is_format tmp_format[NFORMATS];
-            struct argument_range tmp_range;
-            enum is_wrap tmp_wrap;
-            bool interesting;
-
-            t += strlen ("xgettext:");
-
-            po_parse_comment_special (t, &tmp_fuzzy, tmp_format, &tmp_range,
-                                      &tmp_wrap);
-
-            interesting = false;
-            for (i = 0; i < NFORMATS; i++)
-              if (tmp_format[i] != undecided)
-                {
-                  is_format[i] = tmp_format[i];
-                  interesting = true;
-                }
-            if (has_range_p (tmp_range))
-              {
-                range = tmp_range;
-                interesting = true;
-              }
-            if (tmp_wrap != undecided)
-              {
-                do_wrap = tmp_wrap;
-                interesting = true;
-              }
-
-            /* If the "xgettext:" marker was followed by an interesting
-               keyword, and we updated our is_format/do_wrap variables,
-               we don't print the comment as a #. comment.  */
-            if (interesting)
-              continue;
-          }
-        /* When the comment tag is seen, it drags in not only the line
-           which it starts, but all remaining comment lines.  */
-        if (add_all_remaining_comments
-            || (add_all_remaining_comments =
-                  (comment_tag != NULL
-                   && strncmp (s, comment_tag, strlen (comment_tag)) == 0)))
-          message_comment_dot_append (mp, s);
-      }
-
-    nitems_after = (mp->comment_dot != NULL ? mp->comment_dot->nitems : 0);
-
-    /* Don't add the comments if they are a repetition of the tail of the
-       already present comments.  This avoids unneeded duplication if the
-       same message appears several times, each time with the same comment.  */
-    if (nitems_before < nitems_after)
-      {
-        size_t added = nitems_after - nitems_before;
-
-        if (added <= nitems_before)
-          {
-            bool repeated = true;
-
-            for (i = 0; i < added; i++)
-              if (strcmp (mp->comment_dot->item[nitems_before - added + i],
-                          mp->comment_dot->item[nitems_before + i]) != 0)
-                {
-                  repeated = false;
-                  break;
-                }
-
-            if (repeated)
-              {
-                for (i = 0; i < added; i++)
-                  free ((char *) mp->comment_dot->item[nitems_before + i]);
-                mp->comment_dot->nitems = nitems_before;
-              }
-          }
-      }
-  }
-
-  /* If it is not already decided, through programmer comments, whether the
-     msgid is a format string, examine the msgid.  This is a heuristic.  */
-  for (i = 0; i < NFORMATS; i++)
-    {
-      if (is_format[i] == undecided
-          && (formatstring_parsers[i] == current_formatstring_parser1
-              || formatstring_parsers[i] == current_formatstring_parser2
-              || formatstring_parsers[i] == current_formatstring_parser3)
-          /* But avoid redundancy: objc-format is stronger than c-format.  */
-          && !(i == format_c && possible_format_p (is_format[format_objc]))
-          && !(i == format_objc && possible_format_p (is_format[format_c]))
-          /* Avoid flagging a string as c-format when it's known to be a
-             qt-format or qt-plural-format or kde-format or boost-format
-             string.  */
-          && !(i == format_c
-               && (possible_format_p (is_format[format_qt])
-                   || possible_format_p (is_format[format_qt_plural])
-                   || possible_format_p (is_format[format_kde])
-                   || possible_format_p (is_format[format_boost]))))
-        {
-          struct formatstring_parser *parser = formatstring_parsers[i];
-          char *invalid_reason = NULL;
-          void *descr = parser->parse (mp->msgid, false, NULL, &invalid_reason);
-
-          if (descr != NULL)
-            {
-              /* msgid is a valid format string.  We mark only those msgids
-                 as format strings which contain at least one format directive
-                 and thus are format strings with a high probability.  We
-                 don't mark strings without directives as format strings,
-                 because that would force the programmer to add
-                 "xgettext: no-c-format" anywhere where a translator wishes
-                 to use a percent sign.  So, the msgfmt checking will not be
-                 perfect.  Oh well.  */
-              if (parser->get_number_of_directives (descr) > 0
-                  && !(parser->is_unlikely_intentional != NULL
-                       && parser->is_unlikely_intentional (descr)))
-                is_format[i] = possible;
-
-              parser->free (descr);
-            }
-          else
-            {
-              /* msgid is not a valid format string.  */
-              is_format[i] = impossible;
-              free (invalid_reason);
-            }
-        }
-      mp->is_format[i] = is_format[i];
-    }
-
-  if (has_range_p (range))
-    {
-      if (has_range_p (mp->range))
-        {
-          if (range.min < mp->range.min)
-            mp->range.min = range.min;
-          if (range.max > mp->range.max)
-            mp->range.max = range.max;
-        }
-      else
-        mp->range = range;
-    }
-
-  mp->do_wrap = do_wrap == no ? no : yes;       /* By default we wrap.  */
-
-  /* Warn about the use of non-reorderable format strings when the programming
-     language also provides reorderable format strings.  */
-  warn_format_string (is_format, mp->msgid, pos, "msgid");
-
-  /* Remember where we saw this msgid.  */
-  if (line_comment)
-    message_comment_filepos (mp, pos->file_name, pos->line_number);
-
-  /* Tell the lexer to reset its comment buffer, so that the next
-     message gets the correct comments.  */
-  xgettext_comment_reset ();
-  savable_comment_reset ();
-
-  return mp;
-}
-
-
-void
-remember_a_message_plural (message_ty *mp, char *string,
-                           flag_context_ty context, lex_pos_ty *pos,
-                           refcounted_string_list_ty *comment)
-{
-  char *msgid_plural;
-  char *msgstr1;
-  size_t msgstr1_len;
-  char *msgstr;
-  size_t i;
-
-  msgid_plural = string;
-
-  savable_comment_to_xgettext_comment (comment);
-
-  CONVERT_STRING (msgid_plural, lc_string);
-
-  /* See if the message is already a plural message.  */
-  if (mp->msgid_plural == NULL)
-    {
-      mp->msgid_plural = msgid_plural;
-
-      /* Construct the first plural form from the prefix and suffix,
-         otherwise use the empty string.  The translator will have to
-         provide additional plural forms.  */
-      if (msgstr_prefix)
-        msgstr1 =
-          xasprintf ("%s%s%s", msgstr_prefix, msgid_plural, msgstr_suffix);
-      else
-        msgstr1 = "";
-      msgstr1_len = strlen (msgstr1) + 1;
-      msgstr = XNMALLOC (mp->msgstr_len + msgstr1_len, char);
-      memcpy (msgstr, mp->msgstr, mp->msgstr_len);
-      memcpy (msgstr + mp->msgstr_len, msgstr1, msgstr1_len);
-      mp->msgstr = msgstr;
-      mp->msgstr_len = mp->msgstr_len + msgstr1_len;
-      if (msgstr_prefix)
-        free (msgstr1);
-
-      /* Determine whether the context specifies that the msgid_plural is a
-         format string.  */
-      set_format_flags_from_context (mp->is_format, context, mp->msgid_plural,
-                                     pos, "msgid_plural");
-
-      /* If it is not already decided, through programmer comments or
-         the msgid, whether the msgid is a format string, examine the
-         msgid_plural.  This is a heuristic.  */
-      for (i = 0; i < NFORMATS; i++)
-        if ((formatstring_parsers[i] == current_formatstring_parser1
-             || formatstring_parsers[i] == current_formatstring_parser2
-             || formatstring_parsers[i] == current_formatstring_parser3)
-            && (mp->is_format[i] == undecided || mp->is_format[i] == possible)
-            /* But avoid redundancy: objc-format is stronger than c-format.  */
-            && !(i == format_c
-                 && possible_format_p (mp->is_format[format_objc]))
-            && !(i == format_objc
-                 && possible_format_p (mp->is_format[format_c]))
-            /* Avoid flagging a string as c-format when it's known to be a
-               qt-format or qt-plural-format or boost-format string.  */
-            && !(i == format_c
-                 && (possible_format_p (mp->is_format[format_qt])
-                     || possible_format_p (mp->is_format[format_qt_plural])
-                     || possible_format_p (mp->is_format[format_kde])
-                     || possible_format_p (mp->is_format[format_boost]))))
-          {
-            struct formatstring_parser *parser = formatstring_parsers[i];
-            char *invalid_reason = NULL;
-            void *descr =
-              parser->parse (mp->msgid_plural, false, NULL, &invalid_reason);
-
-            if (descr != NULL)
-              {
-                /* Same heuristic as in remember_a_message.  */
-                if (parser->get_number_of_directives (descr) > 0
-                    && !(parser->is_unlikely_intentional != NULL
-                         && parser->is_unlikely_intentional (descr)))
-                  mp->is_format[i] = possible;
-
-                parser->free (descr);
-              }
-            else
-              {
-                /* msgid_plural is not a valid format string.  */
-                mp->is_format[i] = impossible;
-                free (invalid_reason);
-              }
-          }
-
-      /* Warn about the use of non-reorderable format strings when the programming
-         language also provides reorderable format strings.  */
-      warn_format_string (mp->is_format, mp->msgid_plural, pos, "msgid_plural");
-    }
-  else
-    free (msgid_plural);
-
-  /* Tell the lexer to reset its comment buffer, so that the next
-     message gets the correct comments.  */
-  xgettext_comment_reset ();
-  savable_comment_reset ();
-}
-
-
-struct arglist_parser *
-arglist_parser_alloc (message_list_ty *mlp, const struct callshapes *shapes)
-{
-  if (shapes == NULL || shapes->nshapes == 0)
-    {
-      struct arglist_parser *ap =
-        (struct arglist_parser *)
-        xmalloc (offsetof (struct arglist_parser, alternative[0]));
-
-      ap->mlp = mlp;
-      ap->keyword = NULL;
-      ap->keyword_len = 0;
-      ap->nalternatives = 0;
-
-      return ap;
-    }
-  else
-    {
-      struct arglist_parser *ap =
-        (struct arglist_parser *)
-        xmalloc (xsum (sizeof (struct arglist_parser),
-                       xtimes (shapes->nshapes - 1,
-                               sizeof (struct partial_call))));
-      size_t i;
-
-      ap->mlp = mlp;
-      ap->keyword = shapes->keyword;
-      ap->keyword_len = shapes->keyword_len;
-      ap->nalternatives = shapes->nshapes;
-      for (i = 0; i < shapes->nshapes; i++)
-        {
-          ap->alternative[i].argnumc = shapes->shapes[i].argnumc;
-          ap->alternative[i].argnum1 = shapes->shapes[i].argnum1;
-          ap->alternative[i].argnum2 = shapes->shapes[i].argnum2;
-          ap->alternative[i].argnum1_glib_context =
-            shapes->shapes[i].argnum1_glib_context;
-          ap->alternative[i].argnum2_glib_context =
-            shapes->shapes[i].argnum2_glib_context;
-          ap->alternative[i].argtotal = shapes->shapes[i].argtotal;
-          ap->alternative[i].xcomments = shapes->shapes[i].xcomments;
-          ap->alternative[i].msgctxt = NULL;
-          ap->alternative[i].msgctxt_pos.file_name = NULL;
-          ap->alternative[i].msgctxt_pos.line_number = (size_t)(-1);
-          ap->alternative[i].msgid = NULL;
-          ap->alternative[i].msgid_context = null_context;
-          ap->alternative[i].msgid_pos.file_name = NULL;
-          ap->alternative[i].msgid_pos.line_number = (size_t)(-1);
-          ap->alternative[i].msgid_comment = NULL;
-          ap->alternative[i].msgid_plural = NULL;
-          ap->alternative[i].msgid_plural_context = null_context;
-          ap->alternative[i].msgid_plural_pos.file_name = NULL;
-          ap->alternative[i].msgid_plural_pos.line_number = (size_t)(-1);
-        }
-
-      return ap;
-    }
-}
-
-
-struct arglist_parser *
-arglist_parser_clone (struct arglist_parser *ap)
-{
-  struct arglist_parser *copy =
-    (struct arglist_parser *)
-    xmalloc (xsum (sizeof (struct arglist_parser) - sizeof (struct partial_call),
-                   xtimes (ap->nalternatives, sizeof (struct partial_call))));
-  size_t i;
-
-  copy->mlp = ap->mlp;
-  copy->keyword = ap->keyword;
-  copy->keyword_len = ap->keyword_len;
-  copy->nalternatives = ap->nalternatives;
-  for (i = 0; i < ap->nalternatives; i++)
-    {
-      const struct partial_call *cp = &ap->alternative[i];
-      struct partial_call *ccp = &copy->alternative[i];
-
-      ccp->argnumc = cp->argnumc;
-      ccp->argnum1 = cp->argnum1;
-      ccp->argnum2 = cp->argnum2;
-      ccp->argnum1_glib_context = cp->argnum1_glib_context;
-      ccp->argnum2_glib_context = cp->argnum2_glib_context;
-      ccp->argtotal = cp->argtotal;
-      ccp->xcomments = cp->xcomments;
-      ccp->msgctxt = (cp->msgctxt != NULL ? xstrdup (cp->msgctxt) : NULL);
-      ccp->msgctxt_pos = cp->msgctxt_pos;
-      ccp->msgid = (cp->msgid != NULL ? xstrdup (cp->msgid) : NULL);
-      ccp->msgid_context = cp->msgid_context;
-      ccp->msgid_pos = cp->msgctxt_pos;
-      ccp->msgid_comment = add_reference (cp->msgid_comment);
-      ccp->msgid_plural =
-        (cp->msgid_plural != NULL ? xstrdup (cp->msgid_plural) : NULL);
-      ccp->msgid_plural_context = cp->msgid_plural_context;
-      ccp->msgid_plural_pos = cp->msgid_plural_pos;
-    }
-
-  return copy;
-}
-
-
-void
-arglist_parser_remember (struct arglist_parser *ap,
-                         int argnum, char *string,
-                         flag_context_ty context,
-                         char *file_name, size_t line_number,
-                         refcounted_string_list_ty *comment)
-{
-  bool stored_string = false;
-  size_t nalternatives = ap->nalternatives;
-  size_t i;
-
-  if (!(argnum > 0))
-    abort ();
-  for (i = 0; i < nalternatives; i++)
-    {
-      struct partial_call *cp = &ap->alternative[i];
-
-      if (argnum == cp->argnumc)
-        {
-          cp->msgctxt = string;
-          cp->msgctxt_pos.file_name = file_name;
-          cp->msgctxt_pos.line_number = line_number;
-          stored_string = true;
-          /* Mark msgctxt as done.  */
-          cp->argnumc = 0;
-        }
-      else
-        {
-          if (argnum == cp->argnum1)
-            {
-              cp->msgid = string;
-              cp->msgid_context = context;
-              cp->msgid_pos.file_name = file_name;
-              cp->msgid_pos.line_number = line_number;
-              cp->msgid_comment = add_reference (comment);
-              stored_string = true;
-              /* Mark msgid as done.  */
-              cp->argnum1 = 0;
-            }
-          if (argnum == cp->argnum2)
-            {
-              cp->msgid_plural = string;
-              cp->msgid_plural_context = context;
-              cp->msgid_plural_pos.file_name = file_name;
-              cp->msgid_plural_pos.line_number = line_number;
-              stored_string = true;
-              /* Mark msgid_plural as done.  */
-              cp->argnum2 = 0;
-            }
-        }
-    }
-  /* Note: There is a memory leak here: When string was stored but is later
-     not used by arglist_parser_done, we don't free it.  */
-  if (!stored_string)
-    free (string);
-}
-
-
 bool
-arglist_parser_decidedp (struct arglist_parser *ap, int argnum)
+recognize_qt_formatstrings (void)
 {
-  size_t i;
-
-  /* Test whether all alternatives are decided.
-     Note: A decided alternative can be complete
-       cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-       && cp->argtotal == 0
-     or it can be failed if no literal strings were found at the specified
-     argument positions:
-       cp->argnumc <= argnum && cp->argnum1 <= argnum && cp->argnum2 <= argnum
-     or it can be failed if the number of arguments is exceeded:
-       cp->argtotal > 0 && cp->argtotal < argnum
-   */
-  for (i = 0; i < ap->nalternatives; i++)
-    {
-      struct partial_call *cp = &ap->alternative[i];
-
-      if (!((cp->argnumc <= argnum
-             && cp->argnum1 <= argnum
-             && cp->argnum2 <= argnum)
-            || (cp->argtotal > 0 && cp->argtotal < argnum)))
-        /* cp is still undecided.  */
-        return false;
-    }
-  return true;
-}
-
-
-void
-arglist_parser_done (struct arglist_parser *ap, int argnum)
-{
-  size_t ncomplete;
-  size_t i;
-
-  /* Determine the number of complete calls.  */
-  ncomplete = 0;
-  for (i = 0; i < ap->nalternatives; i++)
-    {
-      struct partial_call *cp = &ap->alternative[i];
-
-      if (cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-          && (cp->argtotal == 0 || cp->argtotal == argnum))
-        ncomplete++;
-    }
-
-  if (ncomplete > 0)
-    {
-      struct partial_call *best_cp = NULL;
-      bool ambiguous = false;
-
-      /* Find complete calls where msgctxt, msgid, msgid_plural are all
-         provided.  */
-      for (i = 0; i < ap->nalternatives; i++)
-        {
-          struct partial_call *cp = &ap->alternative[i];
-
-          if (cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-              && (cp->argtotal == 0 || cp->argtotal == argnum)
-              && cp->msgctxt != NULL
-              && cp->msgid != NULL
-              && cp->msgid_plural != NULL)
-            {
-              if (best_cp != NULL)
-                {
-                  ambiguous = true;
-                  break;
-                }
-              best_cp = cp;
-            }
-        }
-
-      if (best_cp == NULL)
-        {
-          struct partial_call *best_cp1 = NULL;
-          struct partial_call *best_cp2 = NULL;
-
-          /* Find complete calls where msgctxt, msgid are provided.  */
-          for (i = 0; i < ap->nalternatives; i++)
-            {
-              struct partial_call *cp = &ap->alternative[i];
-
-              if (cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-                  && (cp->argtotal == 0 || cp->argtotal == argnum)
-                  && cp->msgctxt != NULL
-                  && cp->msgid != NULL)
-                {
-                  if (best_cp1 != NULL)
-                    {
-                      ambiguous = true;
-                      break;
-                    }
-                  best_cp1 = cp;
-                }
-            }
-
-          /* Find complete calls where msgid, msgid_plural are provided.  */
-          for (i = 0; i < ap->nalternatives; i++)
-            {
-              struct partial_call *cp = &ap->alternative[i];
-
-              if (cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-                  && (cp->argtotal == 0 || cp->argtotal == argnum)
-                  && cp->msgid != NULL
-                  && cp->msgid_plural != NULL)
-                {
-                  if (best_cp2 != NULL)
-                    {
-                      ambiguous = true;
-                      break;
-                    }
-                  best_cp2 = cp;
-                }
-            }
-
-          if (best_cp1 != NULL)
-            best_cp = best_cp1;
-          if (best_cp2 != NULL)
-            {
-              if (best_cp != NULL)
-                ambiguous = true;
-              else
-                best_cp = best_cp2;
-            }
-        }
-
-      if (best_cp == NULL)
-        {
-          /* Find complete calls where msgid is provided.  */
-          for (i = 0; i < ap->nalternatives; i++)
-            {
-              struct partial_call *cp = &ap->alternative[i];
-
-              if (cp->argnumc == 0 && cp->argnum1 == 0 && cp->argnum2 == 0
-                  && (cp->argtotal == 0 || cp->argtotal == argnum)
-                  && cp->msgid != NULL)
-                {
-                  if (best_cp != NULL)
-                    {
-                      ambiguous = true;
-                      break;
-                    }
-                  best_cp = cp;
-                }
-            }
-        }
-
-      if (ambiguous)
-        {
-          error_with_progname = false;
-          error_at_line (0, 0,
-                         best_cp->msgid_pos.file_name,
-                         best_cp->msgid_pos.line_number,
-                         _("ambiguous argument specification for keyword '%.*s'"),
-                         (int) ap->keyword_len, ap->keyword);
-          error_with_progname = true;
-        }
-
-      if (best_cp != NULL)
-        {
-          /* best_cp indicates the best found complete call.
-             Now call remember_a_message.  */
-          message_ty *mp;
-
-          /* Split strings in the GNOME glib syntax "msgctxt|msgid".  */
-          if (best_cp->argnum1_glib_context || best_cp->argnum2_glib_context)
-            /* split_keywordspec should not allow the context to be specified
-               in two different ways.  */
-            if (best_cp->msgctxt != NULL)
-              abort ();
-          if (best_cp->argnum1_glib_context)
-            {
-              const char *separator = strchr (best_cp->msgid, '|');
-
-              if (separator == NULL)
-                {
-                  error_with_progname = false;
-                  error_at_line (0, 0,
-                                 best_cp->msgid_pos.file_name,
-                                 best_cp->msgid_pos.line_number,
-                                 _("warning: missing context for keyword '%.*s'"),
-                                 (int) ap->keyword_len, ap->keyword);
-                  error_with_progname = true;
-                }
-              else
-                {
-                  size_t ctxt_len = separator - best_cp->msgid;
-                  char *ctxt = XNMALLOC (ctxt_len + 1, char);
-
-                  memcpy (ctxt, best_cp->msgid, ctxt_len);
-                  ctxt[ctxt_len] = '\0';
-                  best_cp->msgctxt = ctxt;
-                  best_cp->msgid = xstrdup (separator + 1);
-                }
-            }
-          if (best_cp->msgid_plural != NULL && best_cp->argnum2_glib_context)
-            {
-              const char *separator = strchr (best_cp->msgid_plural, '|');
-
-              if (separator == NULL)
-                {
-                  error_with_progname = false;
-                  error_at_line (0, 0,
-                                 best_cp->msgid_plural_pos.file_name,
-                                 best_cp->msgid_plural_pos.line_number,
-                                 _("warning: missing context for plural argument of keyword '%.*s'"),
-                                 (int) ap->keyword_len, ap->keyword);
-                  error_with_progname = true;
-                }
-              else
-                {
-                  size_t ctxt_len = separator - best_cp->msgid_plural;
-                  char *ctxt = XNMALLOC (ctxt_len + 1, char);
-
-                  memcpy (ctxt, best_cp->msgid_plural, ctxt_len);
-                  ctxt[ctxt_len] = '\0';
-                  if (best_cp->msgctxt == NULL)
-                    best_cp->msgctxt = ctxt;
-                  else
-                    {
-                      if (strcmp (ctxt, best_cp->msgctxt) != 0)
-                        {
-                          error_with_progname = false;
-                          error_at_line (0, 0,
-                                         best_cp->msgid_plural_pos.file_name,
-                                         best_cp->msgid_plural_pos.line_number,
-                                         _("context mismatch between singular and plural form"));
-                          error_with_progname = true;
-                        }
-                      free (ctxt);
-                    }
-                  best_cp->msgid_plural = xstrdup (separator + 1);
-                }
-            }
-
-          {
-            flag_context_ty msgid_context = best_cp->msgid_context;
-            flag_context_ty msgid_plural_context = best_cp->msgid_plural_context;
-
-            /* Special support for the 3-argument tr operator in Qt:
-               When --qt and --keyword=tr:1,1,2c,3t are specified, add to the
-               context the information that the argument is expeected to be a
-               qt-plural-format.  */
-            if (recognize_format_qt
-                && current_formatstring_parser3 == &formatstring_qt_plural
-                && best_cp->msgid_plural == best_cp->msgid)
-              {
-                msgid_context.is_format3 = yes_according_to_context;
-                msgid_plural_context.is_format3 = yes_according_to_context;
-              }
-
-            mp = remember_a_message (ap->mlp, best_cp->msgctxt, best_cp->msgid,
-                                     msgid_context,
-                                     &best_cp->msgid_pos,
-                                     NULL, best_cp->msgid_comment);
-            if (mp != NULL && best_cp->msgid_plural != NULL)
-              remember_a_message_plural (mp, best_cp->msgid_plural,
-                                         msgid_plural_context,
-                                         &best_cp->msgid_plural_pos,
-                                         NULL);
-          }
-
-          if (best_cp->xcomments.nitems > 0)
-            {
-              /* Add best_cp->xcomments to mp->comment_dot, unless already
-                 present.  */
-              size_t i;
-
-              for (i = 0; i < best_cp->xcomments.nitems; i++)
-                {
-                  const char *xcomment = best_cp->xcomments.item[i];
-                  bool found = false;
-
-                  if (mp->comment_dot != NULL)
-                    {
-                      size_t j;
-
-                      for (j = 0; j < mp->comment_dot->nitems; j++)
-                        if (strcmp (xcomment, mp->comment_dot->item[j]) == 0)
-                          {
-                            found = true;
-                            break;
-                          }
-                    }
-                  if (!found)
-                    message_comment_dot_append (mp, xcomment);
-                }
-            }
-        }
-    }
-  else
-    {
-      /* No complete call was parsed.  */
-      /* Note: There is a memory leak here: When there is more than one
-         alternative, the same string can be stored in multiple alternatives,
-         and it's not easy to free all strings reliably.  */
-      if (ap->nalternatives == 1)
-        {
-          if (ap->alternative[0].msgctxt != NULL)
-            free (ap->alternative[0].msgctxt);
-          if (ap->alternative[0].msgid != NULL)
-            free (ap->alternative[0].msgid);
-          if (ap->alternative[0].msgid_plural != NULL)
-            free (ap->alternative[0].msgid_plural);
-        }
-    }
-
-  for (i = 0; i < ap->nalternatives; i++)
-    drop_reference (ap->alternative[i].msgid_comment);
-  free (ap);
+  return recognize_format_qt
+         && current_formatstring_parser4 == &formatstring_qt_plural;
 }
 
 
@@ -3073,6 +2095,7 @@ Content-Transfer-Encoding: 8bit\n",
                       project_id_version,
                       msgid_bugs_address != NULL ? msgid_bugs_address : "",
                       timestring);
+  assume (msgstr != NULL);
   free (timestring);
   free (project_id_version);
 
@@ -3082,9 +2105,10 @@ Content-Transfer-Encoding: 8bit\n",
     comment = xasprintf ("\
 SOME DESCRIPTIVE TITLE.\n\
 Copyright (C) YEAR %s\n\
-This file is distributed under the same license as the PACKAGE package.\n\
+This file is distributed under the same license as the %s package.\n\
 FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.\n",
-			 copyright_holder);
+                           copyright_holder,
+                           package_name != NULL ? package_name : "PACKAGE");
   else
     comment = xstrdup ("\
 SOME DESCRIPTIVE TITLE.\n\
@@ -3159,18 +2183,14 @@ finalize_header (msgdomain_list_ty *mdlp)
      All messages have already been converted to UTF-8 in remember_a_message
      and remember_a_message_plural.  */
   {
-    bool has_nonascii = false;
-    size_t i;
+    bool has_nonascii = ! is_ascii_msgdomain_list (mdlp);
+    bool has_filenames_with_spaces =
+      msgdomain_list_has_filenames_with_spaces (mdlp);
 
-    for (i = 0; i < mdlp->nitems; i++)
-      {
-        message_list_ty *mlp = mdlp->item[i]->messages;
-
-        if (!is_ascii_message_list (mlp))
-          has_nonascii = true;
-      }
-
-    if (has_nonascii || output_syntax->requires_utf8)
+    if (has_nonascii
+        || (has_filenames_with_spaces
+            && output_syntax->requires_utf8_for_filenames_with_spaces)
+        || output_syntax->requires_utf8)
       {
         message_list_ty *mlp = mdlp->item[0]->messages;
 
@@ -3180,17 +2200,14 @@ finalize_header (msgdomain_list_ty *mdlp)
 }
 
 
-#define SIZEOF(a) (sizeof(a) / sizeof(a[0]))
-#define ENDOF(a) ((a) + SIZEOF(a))
-
-
 static extractor_ty
 language_to_extractor (const char *name)
 {
   struct table_ty
   {
     const char *name;
-    extractor_func func;
+    extract_from_stream_func extract_from_stream;
+    extract_from_file_func extract_from_file;
     flag_context_list_table_ty *flag_table;
     struct formatstring_parser *formatstring_parser1;
     struct formatstring_parser *formatstring_parser2;
@@ -3199,29 +2216,33 @@ language_to_extractor (const char *name)
 
   static table_ty table[] =
   {
-    SCANNERS_C
     SCANNERS_PO
-    SCANNERS_SH
+    SCANNERS_PROPERTIES
+    SCANNERS_STRINGTABLE
+    SCANNERS_C
     SCANNERS_PYTHON
+    SCANNERS_JAVA
+    SCANNERS_CSHARP
+    SCANNERS_JAVASCRIPT
+    SCANNERS_SCHEME
     SCANNERS_LISP
     SCANNERS_ELISP
     SCANNERS_LIBREP
-    SCANNERS_SCHEME
-    SCANNERS_SMALLTALK
-    SCANNERS_JAVA
-    SCANNERS_PROPERTIES
-    SCANNERS_CSHARP
+    SCANNERS_RUBY
+    SCANNERS_SH
     SCANNERS_AWK
-    SCANNERS_YCP
+    SCANNERS_LUA
+    SCANNERS_SMALLTALK
+    SCANNERS_VALA
     SCANNERS_TCL
     SCANNERS_PERL
     SCANNERS_PHP
-    SCANNERS_STRINGTABLE
+    SCANNERS_YCP
     SCANNERS_RST
+    SCANNERS_DESKTOP
     SCANNERS_GLADE
-    SCANNERS_LUA
-    SCANNERS_JAVASCRIPT
-    SCANNERS_VALA
+    SCANNERS_GSETTINGS
+    SCANNERS_APPDATA
     /* Here may follow more languages and their scanners: pike, etc...
        Make sure new scanners honor the --exclude-file option.  */
   };
@@ -3233,11 +2254,13 @@ language_to_extractor (const char *name)
       {
         extractor_ty result;
 
-        result.func = tp->func;
+        result.extract_from_stream = tp->extract_from_stream;
+        result.extract_from_file = tp->extract_from_file;
         result.flag_table = tp->flag_table;
         result.formatstring_parser1 = tp->formatstring_parser1;
         result.formatstring_parser2 = tp->formatstring_parser2;
         result.formatstring_parser3 = NULL;
+        result.formatstring_parser4 = NULL;
 
         /* Handle --qt.  It's preferrable to handle this facility here rather
            than through an option --language=C++/Qt because the latter would
@@ -3245,20 +2268,21 @@ language_to_extractor (const char *name)
         if (recognize_format_qt && strcmp (tp->name, "C++") == 0)
           {
             result.flag_table = &flag_table_cxx_qt;
-            result.formatstring_parser2 = &formatstring_qt;
-            result.formatstring_parser3 = &formatstring_qt_plural;
+            result.formatstring_parser3 = &formatstring_qt;
+            result.formatstring_parser4 = &formatstring_qt_plural;
           }
         /* Likewise for --kde.  */
         if (recognize_format_kde && strcmp (tp->name, "C++") == 0)
           {
             result.flag_table = &flag_table_cxx_kde;
-            result.formatstring_parser2 = &formatstring_kde;
+            result.formatstring_parser3 = &formatstring_kde;
+            result.formatstring_parser4 = &formatstring_kde_kuit;
           }
         /* Likewise for --boost.  */
         if (recognize_format_boost && strcmp (tp->name, "C++") == 0)
           {
             result.flag_table = &flag_table_cxx_boost;
-            result.formatstring_parser2 = &formatstring_boost;
+            result.formatstring_parser3 = &formatstring_boost;
           }
 
         return result;
@@ -3267,7 +2291,7 @@ language_to_extractor (const char *name)
   error (EXIT_FAILURE, 0, _("language '%s' unknown"), name);
   /* NOTREACHED */
   {
-    extractor_ty result = { NULL, NULL, NULL, NULL };
+    extractor_ty result = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
     return result;
   }
 }
@@ -3285,29 +2309,33 @@ extension_to_language (const char *extension)
 
   static table_ty table[] =
   {
-    EXTENSIONS_C
     EXTENSIONS_PO
-    EXTENSIONS_SH
+    EXTENSIONS_PROPERTIES
+    EXTENSIONS_STRINGTABLE
+    EXTENSIONS_C
     EXTENSIONS_PYTHON
+    EXTENSIONS_JAVA
+    EXTENSIONS_CSHARP
+    EXTENSIONS_JAVASCRIPT
+    EXTENSIONS_SCHEME
     EXTENSIONS_LISP
     EXTENSIONS_ELISP
     EXTENSIONS_LIBREP
-    EXTENSIONS_SCHEME
-    EXTENSIONS_SMALLTALK
-    EXTENSIONS_JAVA
-    EXTENSIONS_PROPERTIES
-    EXTENSIONS_CSHARP
+    EXTENSIONS_RUBY
+    EXTENSIONS_SH
     EXTENSIONS_AWK
-    EXTENSIONS_YCP
+    EXTENSIONS_LUA
+    EXTENSIONS_SMALLTALK
+    EXTENSIONS_VALA
     EXTENSIONS_TCL
     EXTENSIONS_PERL
     EXTENSIONS_PHP
-    EXTENSIONS_STRINGTABLE
+    EXTENSIONS_YCP
     EXTENSIONS_RST
+    EXTENSIONS_DESKTOP
     EXTENSIONS_GLADE
-    EXTENSIONS_LUA
-    EXTENSIONS_JAVASCRIPT
-    EXTENSIONS_VALA
+    EXTENSIONS_GSETTINGS
+    EXTENSIONS_APPDATA
     /* Here may follow more file extensions... */
   };
 

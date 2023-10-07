@@ -1,3 +1,7 @@
+@c This file is part of the GNU gettext manual.
+@c Copyright (C) 1995-2019 Free Software Foundation, Inc.
+@c See the file gettext.texi for copying conditions.
+
 @pindex autopoint
 @cindex @code{autopoint} program, usage
 @example
@@ -10,6 +14,13 @@ into a source package.  It extracts from a macro call of the form
 @file{configure.in} or @file{configure.ac} file, the gettext version
 used by the package, and copies the infrastructure files belonging to
 this version into the package.
+
+To extract the latest available infrastructure which satisfies a version
+requirement, then you can use the form
+@code{AM_GNU_GETTEXT_REQUIRE_VERSION(@var{version})} instead.  For
+example, if gettext @value{ARCHIVE-VERSION} is installed on your system
+and @code{0.19.1} is requested, then the infrastructure files of version
+@value{ARCHIVE-VERSION} will be copied into a source package.
 
 @subsubsection Options
 
@@ -43,10 +54,11 @@ Output version information and exit.
 
 @end table
 
-@code{autopoint} supports the GNU @code{gettext} versions from 0.10.35 to
-the current one, @value{VERSION}.  In order to apply @code{autopoint} to
-a package using a @code{gettext} version newer than @value{VERSION}, you
-need to install this same version of GNU @code{gettext} at least.
+@code{autopoint} supports the GNU @code{gettext} versions from 0.10.35
+to the current one, @value{ARCHIVE-VERSION}.  In order to apply
+@code{autopoint} to a package using a @code{gettext} version newer than
+@value{ARCHIVE-VERSION}, you need to install this same version of GNU
+@code{gettext} at least.
 
 In packages using GNU @code{automake}, an invocation of @code{autopoint}
 should be followed by invocations of @code{aclocal} and then @code{autoconf}
@@ -57,5 +69,5 @@ package's @file{configure} script and by @code{autoheader} to create the
 package's @file{config.h.in} include file template.
 
 The name @samp{autopoint} is an abbreviation of @samp{auto-po-intl-m4};
-the tool copies or updates mostly files in the @file{po}, @file{intl},
-@file{m4} directories.
+in earlier versions, the tool copied or updated mostly files in the @file{po},
+@file{intl}, @file{m4} directories.

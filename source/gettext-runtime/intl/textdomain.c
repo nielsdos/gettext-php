@@ -1,5 +1,5 @@
 /* Implementation of the textdomain(3) function.
-   Copyright (C) 1995-1998, 2000-2003, 2005-2006 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as published by
@@ -12,7 +12,7 @@
    GNU Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -30,12 +30,12 @@
 
 /* Handle multi-threaded applications.  */
 #ifdef _LIBC
-# include <bits/libc-lock.h>
+# include <libc-lock.h>
 # define gl_rwlock_define __libc_rwlock_define
 # define gl_rwlock_wrlock __libc_rwlock_wrlock
 # define gl_rwlock_unlock __libc_rwlock_unlock
 #else
-# include "lock.h"
+# include "glthread/lock.h"
 #endif
 
 /* @@ end of prolog @@ */
@@ -87,20 +87,10 @@ TEXTDOMAIN (const char *domainname)
     new_domain = old_domain;
   else
     {
-      /* If the following malloc fails `_nl_current_default_domain'
+      /* If the following strdup fails '_nl_current_default_domain'
 	 will be NULL.  This value will be returned and so signals we
-	 are out of core.  */
-#ifdef _MSC_VER
-		new_domain = _strdup (domainname);
-#elif defined _LIBC || defined HAVE_STRDUP
+	 are out of memory.  */
       new_domain = strdup (domainname);
-#else
-      size_t len = strlen (domainname) + 1;
-      new_domain = (char *) malloc (len);
-      if (new_domain != NULL)
-	memcpy (new_domain, domainname, len);
-#endif
-
       if (new_domain != NULL)
 	_nl_current_default_domain = new_domain;
     }

@@ -1,5 +1,5 @@
 /* GNU gettext - internationalization aids
-   Copyright (C) 1995-1996, 1998, 2000-2001, 2003, 2005-2006, 2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-1996, 1998, 2000-2001, 2003, 2005-2006, 2012-2013, 2016, 2020, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <pmiller@agso.gov.au>
 
@@ -14,7 +14,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -39,53 +39,6 @@
 
 #define _(str) gettext (str)
 
-/* Remap normal yacc parser interface names (yyparse, yylex, yyerror, etc),
-   as well as gratuitiously global symbol names, so we can have multiple
-   yacc generated parsers in the same program.  Note that these are only
-   the variables produced by yacc.  If other parser generators (bison,
-   byacc, etc) produce additional global names that conflict at link time,
-   then those parser generators need to be fixed instead of adding those
-   names to this list. */
-
-#define yymaxdepth po_gram_maxdepth
-#define yyparse po_gram_parse
-#define yylex   po_gram_lex
-#define yyerror po_gram_error
-#define yylval  po_gram_lval
-#define yychar  po_gram_char
-#define yydebug po_gram_debug
-#define yypact  po_gram_pact
-#define yyr1    po_gram_r1
-#define yyr2    po_gram_r2
-#define yydef   po_gram_def
-#define yychk   po_gram_chk
-#define yypgo   po_gram_pgo
-#define yyact   po_gram_act
-#define yyexca  po_gram_exca
-#define yyerrflag po_gram_errflag
-#define yynerrs po_gram_nerrs
-#define yyps    po_gram_ps
-#define yypv    po_gram_pv
-#define yys     po_gram_s
-#define yy_yys  po_gram_yys
-#define yystate po_gram_state
-#define yytmp   po_gram_tmp
-#define yyv     po_gram_v
-#define yy_yyv  po_gram_yyv
-#define yyval   po_gram_val
-#define yylloc  po_gram_lloc
-#define yyreds  po_gram_reds          /* With YYDEBUG defined */
-#define yytoks  po_gram_toks          /* With YYDEBUG defined */
-#define yylhs   po_gram_yylhs
-#define yylen   po_gram_yylen
-#define yydefred po_gram_yydefred
-#define yydgoto po_gram_yydgoto
-#define yysindex po_gram_yysindex
-#define yyrindex po_gram_yyrindex
-#define yygindex po_gram_yygindex
-#define yytable  po_gram_yytable
-#define yycheck  po_gram_yycheck
-
 static long plural_counter;
 
 #define check_obsolete(value1,value2) \
@@ -102,7 +55,7 @@ do_callback_message (char *msgctxt,
 {
   /* Test for header entry.  Ignore fuzziness of the header entry.  */
   if (msgctxt == NULL && msgid[0] == '\0' && !obsolete)
-    po_lex_charset_set (msgstr, gram_pos.file_name);
+    po_lex_charset_set (msgstr, gram_pos.file_name, gram_pot_role);
 
   po_callback_message (msgctxt,
                        msgid, msgid_pos, msgid_plural,
@@ -122,6 +75,12 @@ do_callback_message (char *msgctxt,
     free ((value).ctxt);
 
 %}
+
+%require "3.0"
+
+/* Remap parser interface names, so we can have multiple Bison
+   generated parsers in the same program.  */
+%define api.prefix {po_gram_}
 
 %token COMMENT
 %token DOMAIN
@@ -411,6 +370,7 @@ string_list
                 {
                   string_list_init (&$$.stringlist);
                   string_list_append (&$$.stringlist, $1.string);
+                  free ($1.string);
                   $$.pos = $1.pos;
                   $$.obsolete = $1.obsolete;
                 }
@@ -419,6 +379,7 @@ string_list
                   check_obsolete ($1, $2);
                   $$.stringlist = $1.stringlist;
                   string_list_append (&$$.stringlist, $2.string);
+                  free ($2.string);
                   $$.pos = $1.pos;
                   $$.obsolete = $1.obsolete;
                 }
@@ -429,6 +390,7 @@ prev_string_list
                 {
                   string_list_init (&$$.stringlist);
                   string_list_append (&$$.stringlist, $1.string);
+                  free ($1.string);
                   $$.pos = $1.pos;
                   $$.obsolete = $1.obsolete;
                 }
@@ -437,6 +399,7 @@ prev_string_list
                   check_obsolete ($1, $2);
                   $$.stringlist = $1.stringlist;
                   string_list_append (&$$.stringlist, $2.string);
+                  free ($2.string);
                   $$.pos = $1.pos;
                   $$.obsolete = $1.obsolete;
                 }

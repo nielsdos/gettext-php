@@ -1,5 +1,5 @@
 /* Charset handling while reading PO files.
-   Copyright (C) 2001-2007, 2010 Free Software Foundation, Inc.
+   Copyright (C) 2001-2007, 2010, 2019-2021, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <haible@clisp.cons.org>, 2001.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -30,8 +30,10 @@
 #include "xmalloca.h"
 #include "xvasprintf.h"
 #include "po-xerror.h"
-#include "basename.h"
-#include "progname.h"
+#if !IN_LIBGETTEXTPO
+# include "basename-lgpl.h"
+# include "progname.h"
+#endif
 #include "c-strstr.h"
 #include "c-strcase.h"
 #include "gettext.h"
@@ -55,7 +57,7 @@ const char *
 po_charset_canonicalize (const char *charset)
 {
   /* The list of charsets supported by glibc's iconv() and by the portable
-     iconv() across platforms.  Taken from intl/config.charset.  */
+     iconv() across platforms.  Taken from intl/localcharset.h.  */
   static const char *standard_charsets[] =
   {
     ascii, "ANSI_X3.4-1968", "US-ASCII",        /* i = 0..2 */
@@ -434,6 +436,13 @@ po_charset_character_iterator (const char *canon_charset)
 /* The PO file's encoding, as specified in the header entry.  */
 const char *po_lex_charset;
 
+/* Representation of U+2068 FIRST STRONG ISOLATE (FSI) in the PO file's
+   encoding, or NULL if not available.  */
+const char *po_lex_isolate_start;
+/* Representation of U+2069 POP DIRECTIONAL ISOLATE (PDI) in the PO file's
+   encoding, or NULL if not available.  */
+const char *po_lex_isolate_end;
+
 #if HAVE_ICONV
 /* Converter from the PO file's encoding to UTF-8.  */
 iconv_t po_lex_iconv;
@@ -446,6 +455,8 @@ void
 po_lex_charset_init ()
 {
   po_lex_charset = NULL;
+  po_lex_isolate_start = NULL;
+  po_lex_isolate_end = NULL;
 #if HAVE_ICONV
   po_lex_iconv = (iconv_t)(-1);
 #endif
@@ -453,7 +464,8 @@ po_lex_charset_init ()
 }
 
 void
-po_lex_charset_set (const char *header_entry, const char *filename)
+po_lex_charset_set (const char *header_entry,
+                    const char *filename, bool is_pot_role)
 {
   /* Verify the validity of CHARSET.  It is necessary
      1. for the correct treatment of multibyte characters containing
@@ -481,9 +493,10 @@ po_lex_charset_set (const char *header_entry, const char *filename)
              only ASCII msgids.  */
           size_t filenamelen = strlen (filename);
 
-          if (!(filenamelen >= 4
-                && memcmp (filename + filenamelen - 4, ".pot", 4) == 0
-                && strcmp (charset, "CHARSET") == 0))
+          if (!(strcmp (charset, "CHARSET") == 0
+                && ((filenamelen >= 4
+                     && memcmp (filename + filenamelen - 4, ".pot", 4) == 0)
+                    || is_pot_role)))
             {
               char *warning_message =
                 xasprintf (_("\
@@ -501,6 +514,24 @@ Message conversion to user's charset might not work.\n"),
           const char *envval;
 
           po_lex_charset = canon_charset;
+
+          if (strcmp (canon_charset, "UTF-8") == 0)
+            {
+              po_lex_isolate_start = "\xE2\x81\xA8";
+              po_lex_isolate_end = "\xE2\x81\xA9";
+            }
+          else if (strcmp (canon_charset, "GB18030") == 0)
+            {
+              po_lex_isolate_start = "\x81\x36\xAC\x34";
+              po_lex_isolate_end = "\x81\x36\xAC\x35";
+            }
+          else
+            {
+              /* The other encodings don't contain U+2068, U+2069.  */
+              po_lex_isolate_start = NULL;
+              po_lex_isolate_end = NULL;
+            }
+
 #if HAVE_ICONV
           if (po_lex_iconv != (iconv_t)(-1))
             iconv_close (po_lex_iconv);
@@ -548,17 +579,23 @@ Message conversion to user's charset might not work.\n"),
               po_lex_iconv = iconv_open ("UTF-8", po_lex_charset);
               if (po_lex_iconv == (iconv_t)(-1))
                 {
+                  const char *progname;
                   char *warning_message;
                   const char *recommendation;
                   const char *note;
                   char *whole_message;
 
+# if IN_LIBGETTEXTPO
+                  progname = "libgettextpo";
+# else
+                  progname = last_component (program_name);
+# endif
+
                   warning_message =
                     xasprintf (_("\
 Charset \"%s\" is not supported. %s relies on iconv(),\n\
 and iconv() does not support \"%s\".\n"),
-                               po_lex_charset, basename (program_name),
-                               po_lex_charset);
+                               po_lex_charset, progname, po_lex_charset);
 
 # if !defined _LIBICONV_VERSION
                   recommendation = _("\
@@ -598,16 +635,23 @@ would fix this problem.\n");
               po_lex_weird_cjk = po_is_charset_weird_cjk (po_lex_charset);
               if (po_is_charset_weird (po_lex_charset) && !po_lex_weird_cjk)
                 {
+                  const char *progname;
                   char *warning_message;
                   const char *recommendation;
                   const char *note;
                   char *whole_message;
 
+# if IN_LIBGETTEXTPO
+                  progname = "libgettextpo";
+# else
+                  progname = last_component (program_name);
+# endif
+
                   warning_message =
                     xasprintf (_("\
 Charset \"%s\" is not supported. %s relies on iconv().\n\
 This version was built without iconv().\n"),
-                               po_lex_charset, basename (program_name));
+                               po_lex_charset, progname);
 
                   recommendation = _("\
 Installing GNU libiconv and then reinstalling GNU gettext\n\
@@ -651,6 +695,8 @@ void
 po_lex_charset_close ()
 {
   po_lex_charset = NULL;
+  po_lex_isolate_start = NULL;
+  po_lex_isolate_end = NULL;
 #if HAVE_ICONV
   if (po_lex_iconv != (iconv_t)(-1))
     {

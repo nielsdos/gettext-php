@@ -1,5 +1,5 @@
 /* Header describing internals of libintl library.
-   Copyright (C) 1995-1999, 2000-2007, 2009-2010 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    Written by Ulrich Drepper <drepper@cygnus.com>, 1995.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifndef _GETTEXTP_H
 #define _GETTEXTP_H
@@ -30,13 +30,14 @@
 
 /* Handle multi-threaded applications.  */
 #ifdef _LIBC
-# include <bits/libc-lock.h>
+# include <libc-lock.h>
 # define gl_rwlock_define __libc_rwlock_define
 #else
-# include "lock.h"
+# include "glthread/lock.h"
 #endif
 
 #ifdef _LIBC
+struct loaded_domain;
 extern char *__gettext (const char *__msgid);
 extern char *__dgettext (const char *__domainname, const char *__msgid);
 extern char *__dcgettext (const char *__domainname, const char *__msgid,
@@ -48,11 +49,12 @@ extern char *__dngettext (const char *__domainname,
 			  unsigned long int n);
 extern char *__dcngettext (const char *__domainname,
 			   const char *__msgid1, const char *__msgid2,
-			   unsigned long int __n, int __category);
+			   unsigned long int __n, int __category)
+     attribute_hidden;
 extern char *__dcigettext (const char *__domainname,
 			   const char *__msgid1, const char *__msgid2,
 			   int __plural, unsigned long int __n,
-			   int __category);
+			   int __category) attribute_hidden;
 extern char *__textdomain (const char *__domainname);
 extern char *__bindtextdomain (const char *__domainname,
 			       const char *__dirname);
@@ -60,7 +62,7 @@ extern char *__bind_textdomain_codeset (const char *__domainname,
 					const char *__codeset);
 extern void _nl_finddomain_subfreeres (void) attribute_hidden;
 extern void _nl_unload_domain (struct loaded_domain *__domain)
-     internal_function attribute_hidden;
+     attribute_hidden;
 #else
 /* Declare the exported libintl_* functions, in a way that allows us to
    call them under their real name.  */
@@ -88,10 +90,6 @@ extern char *libintl_dcigettext (const char *__domainname,
 
 /* @@ end of prolog @@ */
 
-#ifndef internal_function
-# define internal_function
-#endif
-
 #ifndef attribute_hidden
 # define attribute_hidden
 #endif
@@ -112,12 +110,7 @@ extern char *libintl_dcigettext (const char *__domainname,
 # define SWAP(i) bswap_32 (i)
 #else
 static inline nls_uint32
-# ifdef __cplusplus
 SWAP (nls_uint32 i)
-# else
-SWAP (i)
-     nls_uint32 i;
-# endif
 {
   return (i << 24) | ((i & 0xff00) << 8) | ((i >> 8) & 0xff00) | (i >> 24);
 }
@@ -191,12 +184,8 @@ struct loaded_domain
   /* Cache of charset conversions of the translated strings.  */
   struct converted_domain *conversions;
   size_t nconversions;
-  /* Anything before msvc8 is too stupid for the macro used here */
-#if defined _MSC_VER && _MSC_VER < 1400
-  gl_rwlock_t conversions_lock;
-#else
   gl_rwlock_define (, conversions_lock)
-#endif
+
   const struct expression *plural;
   unsigned long int nplurals;
 };
@@ -215,66 +204,58 @@ struct binding
 {
   struct binding *next;
   char *dirname;
+#if defined _WIN32 && !defined __CYGWIN__
+  wchar_t *wdirname;
+#endif
   char *codeset;
-  char domainname[ZERO];
+  char domainname[FLEXIBLE_ARRAY_MEMBER];
 };
 
 /* A counter which is incremented each time some previous translations
    become invalid.
    This variable is part of the external ABI of the GNU libintl.  */
+#if defined __KLIBC__ && !defined _LIBC
+# define _nl_msg_cat_cntr libintl_nl_msg_cat_cntr
+#endif
 #ifdef IN_LIBGLOCALE
 # include <glocale/config.h>
-extern LIBGLOCALE_DLL_EXPORTED int _nl_msg_cat_cntr;
+extern LIBGLOCALE_SHLIB_EXPORTED int _nl_msg_cat_cntr;
 #else
-extern LIBINTL_DLL_EXPORTED int _nl_msg_cat_cntr;
+extern LIBINTL_SHLIB_EXPORTED int _nl_msg_cat_cntr;
 #endif
 
 #ifndef _LIBC
 extern const char *_nl_language_preferences_default (void);
-# define gl_locale_name_canonicalize _nl_locale_name_canonicalize
-extern void _nl_locale_name_canonicalize (char *name);
-# define gl_locale_name_from_win32_LANGID _nl_locale_name_from_win32_LANGID
-/* extern const char *_nl_locale_name_from_win32_LANGID (LANGID langid); */
-# define gl_locale_name_from_win32_LCID _nl_locale_name_from_win32_LCID
-/* extern const char *_nl_locale_name_from_win32_LCID (LCID lcid); */
-# define gl_locale_name_thread_unsafe _nl_locale_name_thread_unsafe
-extern const char *_nl_locale_name_thread_unsafe (int category,
-						  const char *categoryname);
-# define gl_locale_name_thread _nl_locale_name_thread
-/* extern const char *_nl_locale_name_thread (int category,
-					      const char *categoryname); */
-# define gl_locale_name_posix _nl_locale_name_posix
-extern const char *_nl_locale_name_posix (int category,
-					  const char *categoryname);
-# define gl_locale_name_environ _nl_locale_name_environ
-extern const char *_nl_locale_name_environ (int category,
-					    const char *categoryname);
-# define gl_locale_name_default _nl_locale_name_default
-extern const char *_nl_locale_name_default (void);
-# define gl_locale_name _nl_locale_name
-/* extern const char *_nl_locale_name (int category,
-				       const char *categoryname); */
+extern void gl_locale_name_canonicalize (char *name);
+/* extern const char *gl_locale_name_from_win32_LANGID (LANGID langid); */
+/* extern const char *gl_locale_name_from_win32_LCID (LCID lcid); */
+extern const char *gl_locale_name_thread_unsafe (int category,
+						 const char *categoryname);
 #endif
 
-struct loaded_l10nfile *_nl_find_domain (const char *__dirname, char *__locale,
+struct loaded_l10nfile *_nl_find_domain (const char *__dirname,
+#if defined _WIN32 && !defined __CYGWIN__
+					 const wchar_t *__wdirname,
+#endif
+					 char *__locale,
 					 const char *__domainname,
 					 struct binding *__domainbinding)
-     internal_function;
+     attribute_hidden;
 void _nl_load_domain (struct loaded_l10nfile *__domain,
 		      struct binding *__domainbinding)
-     internal_function;
+     attribute_hidden;
 
 #ifdef IN_LIBGLOCALE
 char *_nl_find_msg (struct loaded_l10nfile *domain_file,
 		    struct binding *domainbinding, const char *encoding,
 		    const char *msgid,
 		    size_t *lengthp)
-     internal_function;
+     attribute_hidden;
 #else
 char *_nl_find_msg (struct loaded_l10nfile *domain_file,
 		    struct binding *domainbinding, const char *msgid,
 		    int convert, size_t *lengthp)
-     internal_function;
+     attribute_hidden;
 #endif
 
 /* The internal variables in the standalone libintl.a must have different
@@ -307,6 +288,11 @@ extern const char _nl_default_default_domain[] attribute_hidden;
 
 /* Default text domain in which entries for gettext(3) are to be found.  */
 extern const char *_nl_current_default_domain attribute_hidden;
+
+extern void _nl_log_untranslated (const char *logfilename,
+				  const char *domainname,
+				  const char *msgid1, const char *msgid2,
+				  int plural);
 
 /* @@ begin of epilog @@ */
 

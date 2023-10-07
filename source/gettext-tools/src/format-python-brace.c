@@ -1,5 +1,5 @@
 /* Python brace format strings.
-   Copyright (C) 2004, 2006-2007, 2013 Free Software Foundation, Inc.
+   Copyright (C) 2004, 2006-2007, 2013-2014, 2016, 2019, 2023 Free Software Foundation, Inc.
    Written by Daiki Ueno <ueno@gnu.org>, 2013.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "format.h"
+#include "c-ctype.h"
 #include "xalloc.h"
 #include "xvasprintf.h"
 #include "format-invalid.h"
@@ -31,18 +32,36 @@
 
 #define _(str) gettext (str)
 
-/* Python brace format strings are defined by PEP3101 together with
-   'format' method of string class.
+/* Python brace format strings are defined by PEP3101 together with the
+   'format' method of the string class.
+   Documentation:
+     https://peps.python.org/pep-3101/
+     https://docs.python.org/3/library/string.html#formatstrings
    A format string directive here consists of
      - an opening brace '{',
      - an identifier [_A-Za-z][_0-9A-Za-z]*|[0-9]+,
-     - an optional getattr ('.') or getitem ('['..']') operator with
-       an identifier as argument,
-     - an optional width specifier starting with ':', with a
-       (unnested) format string as argument,
+     - an optional sequence of
+         - getattr ('.' identifier) or
+         - getitem ('[' identifier ']')
+       operators,
+     - optionally, a ':' and a format specifier, where a format specifier is
+       - either a format directive of the form '{' ... '}' without a format
+         specifier, or
+       - of the form [[fill]align][sign][#][0][minimumwidth][.precision][type]
+         where
+           - the fill character is any character,
+           - the align flag is one of '<', '>', '=', '^',
+           - the sign is one of '+', '-', ' ',
+           - the # flag is '#',
+           - the 0 flag is '0',
+           - minimumwidth is a non-empty sequence of digits,
+           - precision is a non-empty sequence of digits,
+           - type is one of
+             - 'b', 'c', 'd', 'o', 'x', 'X', 'n' for integers,
+             - 'e', 'E', 'f', 'F', 'g', 'G', 'n', '%' for floating-point values,
      - a closing brace '}'.
-   Brace characters '{' and '}' can be escaped by doubles '{{' and '}}'.
- */
+   Brace characters '{' and '}' can be escaped by doubling them: '{{' and '}}'.
+*/
 
 struct named_arg
 {
@@ -58,9 +77,7 @@ struct spec
 };
 
 
-static bool parse_upto (struct spec *spec, const char **formatp,
-                        bool is_toplevel, char terminator,
-                        bool translated, char *fdi, char **invalid_reason);
+/* Forward declaration of local functions.  */
 static void free_named_args (struct spec *spec);
 
 
@@ -111,6 +128,12 @@ parse_numeric_field (struct spec *spec,
   return false;
 }
 
+/* Parses a directive.
+   When this function is invoked, *formatp points to the start of the directive,
+   i.e. to the '{' character.
+   When this function returns true, *formatp points to the first character after
+   the directive, i.e. in most cases to the character after the '}' character.
+ */
 static bool
 parse_directive (struct spec *spec,
                  const char **formatp, bool is_toplevel,
@@ -124,6 +147,7 @@ parse_directive (struct spec *spec,
   c = *++format;
   if (c == '{')
     {
+      /* An escaped '{'.  */
       *formatp = ++format;
       return true;
     }
@@ -133,81 +157,161 @@ parse_directive (struct spec *spec,
       && !parse_numeric_field (spec, &format, translated, fdi, invalid_reason))
     {
       *invalid_reason =
-        xasprintf (_("In the directive number %u, '%c' cannot start a field name."), spec->directives, *format);
+        xasprintf (_("In the directive number %u, '%c' cannot start a field name."),
+                   spec->directives, *format);
       FDI_SET (format, FMTDIR_ERROR);
       return false;
     }
 
-  c = *format;
-  if (c == '.')
+  /* Parse '.' (getattr) or '[..]' (getitem) operators followed by a
+     name.  If must not recurse, but can be specifed in a chain, such
+     as "foo.bar.baz[0]".  */
+  for (;;)
     {
-      format++;
-      if (!parse_named_field (spec, &format, translated, fdi,
-                              invalid_reason))
-        {
-          *invalid_reason =
-            xasprintf (_("In the directive number %u, '%c' cannot start a getattr argument."), spec->directives, *format);
-          FDI_SET (format, FMTDIR_ERROR);
-          return false;
-        }
       c = *format;
-    }
-  else if (c == '[')
-    {
-      format++;
-      if (!parse_named_field (spec, &format, translated, fdi,
-                              invalid_reason)
-          && !parse_numeric_field (spec, &format, translated, fdi,
-                                   invalid_reason))
-        {
-          *invalid_reason =
-            xasprintf (_("In the directive number %u, '%c' cannot start a getitem argument."), spec->directives, *format);
-          FDI_SET (format, FMTDIR_ERROR);
-          return false;
-        }
 
-      c = *format++;
-      if (c != ']')
+      if (c == '.')
         {
-          *invalid_reason = INVALID_UNTERMINATED_DIRECTIVE ();
-          FDI_SET (format, FMTDIR_ERROR);
-          return false;
+          format++;
+          if (!parse_named_field (spec, &format, translated, fdi,
+                                  invalid_reason))
+            {
+              *invalid_reason =
+                xasprintf (_("In the directive number %u, '%c' cannot start a getattr argument."),
+                           spec->directives, *format);
+              FDI_SET (format, FMTDIR_ERROR);
+              return false;
+            }
         }
-      c = *format;
+      else if (c == '[')
+        {
+          format++;
+          if (!parse_named_field (spec, &format, translated, fdi,
+                                  invalid_reason)
+              && !parse_numeric_field (spec, &format, translated, fdi,
+                                       invalid_reason))
+            {
+              *invalid_reason =
+                xasprintf (_("In the directive number %u, '%c' cannot start a getitem argument."),
+                           spec->directives, *format);
+              FDI_SET (format, FMTDIR_ERROR);
+              return false;
+            }
+
+          if (*format != ']')
+            {
+              *invalid_reason =
+                xasprintf (_("In the directive number %u, there is an unterminated getitem argument."),
+                           spec->directives);
+              FDI_SET (format, FMTDIR_ERROR);
+              return false;
+            }
+          format++;
+        }
+      else
+        break;
     }
 
+  /* Here c == *format.  */
   if (c == ':')
     {
       if (!is_toplevel)
         {
           *invalid_reason =
-            xasprintf (_("In the directive number %u, no more nesting is allowed in a format specifier."), spec->directives);
+            xasprintf (_("In the directive number %u, no more nesting is allowed in a format specifier."),
+                       spec->directives);
           FDI_SET (format, FMTDIR_ERROR);
           return false;
         }
 
       format++;
-      if (!parse_upto (spec, &format, false, '}', translated, fdi,
-                       invalid_reason))
-        {
-          /* FDI and INVALID_REASON will be set by a recursive call of
-             parse_directive.  */
-          return false;
-        }
 
-      if (*format == '\0')
+      /* Format specifiers.  Although a format specifier can be any
+         string in theory, we can only recognize two types of format
+         specifiers below, because otherwise we would need to evaluate
+         Python expressions by ourselves:
+
+           - A nested format directive expanding to an argument
+           - The Standard Format Specifiers, as described in PEP3101,
+             not including a nested format directive  */
+      if (*format == '{')
         {
-          *invalid_reason = INVALID_UNTERMINATED_DIRECTIVE ();
-          FDI_SET (format, FMTDIR_ERROR);
-          return false;
+          /* Nested format directive.  */
+          if (!parse_directive (spec, &format, false, translated, fdi,
+                                invalid_reason))
+            {
+              /* FDI and INVALID_REASON will be set by a recursive call of
+                 parse_directive.  */
+              return false;
+            }
         }
-      c = *format;
+      else
+        {
+          /* Standard format specifiers is in the form:
+             [[fill]align][sign][#][0][minimumwidth][.precision][type]  */
+
+          /* Look ahead two characters to skip [[fill]align].  */
+          int c1, c2;
+
+          c1 = format[0];
+          if (c1 == '\0')
+            {
+              *invalid_reason =
+                xasprintf (_("In the directive number %u, there is an unterminated format directive."),
+                           spec->directives);
+              FDI_SET (format, FMTDIR_ERROR);
+              return false;
+            }
+
+          c2 = format[1];
+
+          if (c2 == '<' || c2 == '>' || c2 == '=' || c2 == '^')
+            format += 2;
+          else if (c1 == '<' || c1 == '>' || c1 == '=' || c1 == '^')
+            format++;
+
+          if (*format == '+' || *format == '-' || *format == ' ')
+            format++;
+          if (*format == '#')
+            format++;
+          if (*format == '0')
+            format++;
+
+          /* Parse the optional minimumwidth.  */
+          while (c_isdigit (*format))
+            format++;
+
+          /* Parse the optional .precision.  */
+          if (*format == '.')
+            {
+              format++;
+              if (c_isdigit (*format))
+                do
+                  format++;
+                while (c_isdigit (*format));
+              else
+                format--;
+            }
+
+          switch (*format)
+            {
+            case 'b': case 'c': case 'd': case 'o': case 'x': case 'X':
+            case 'n':
+            case 'e': case 'E': case 'f': case 'F': case 'g': case 'G':
+            case '%':
+              format++;
+              break;
+            default:
+              break;
+            }
+        }
     }
 
-  if (c != '}')
+  if (*format != '}')
     {
       *invalid_reason =
-        xasprintf (_("In the directive number %u, there is an unterminated format directive."), spec->directives);
+        xasprintf (_("In the directive number %u, there is an unterminated format directive."),
+                   spec->directives);
       FDI_SET (format, FMTDIR_ERROR);
       return false;
     }
@@ -475,7 +579,7 @@ main ()
 /*
  * For Emacs M-x compile
  * Local Variables:
- * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../intl -DHAVE_CONFIG_H -DTEST format-python-brace.c ../gnulib-lib/libgettextlib.la"
+ * compile-command: "/bin/sh ../libtool --tag=CC --mode=link gcc -o a.out -static -O -g -Wall -I.. -I../gnulib-lib -I../../gettext-runtime/intl -DHAVE_CONFIG_H -DTEST format-python-brace.c ../gnulib-lib/libgettextlib.la"
  * End:
  */
 

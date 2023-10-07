@@ -1,5 +1,5 @@
 dnl Configuration for the gettext-runtime directory of GNU gettext
-dnl Copyright (C) 1995-1999, 2000-2010 Free Software Foundation, Inc.
+dnl Copyright (C) 1995-2010, 2012-2015, 2018-2023 Free Software Foundation, Inc.
 dnl
 dnl This program is free software: you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -12,36 +12,40 @@ dnl MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 dnl GNU General Public License for more details.
 dnl
 dnl You should have received a copy of the GNU General Public License
-dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
+dnl along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 dnl Process this file with autoconf to produce a configure script.
 
-AC_PREREQ([2.62])
-AC_INIT
+AC_PREREQ([2.64])
+AC_INIT([gettext-runtime],
+	m4_esyscmd([../build-aux/git-version-gen ../.tarball-version]),
+	[bug-gettext@gnu.org])
 AC_CONFIG_SRCDIR([intl/dcigettext.c])
 AC_CONFIG_AUX_DIR([../build-aux])
-. $srcdir/../version.sh
-gl_INIT_PACKAGE([gettext-runtime], [$VERSION_NUMBER])
 AM_INIT_AUTOMAKE([1.11.1 silent-rules parallel-tests])
 AC_CONFIG_HEADERS([config.h])
 
 dnl Installation directories.
-test "$docdir" != '${datarootdir}/doc/${PACKAGE}' || docdir='${datarootdir}/doc/gettext'
+test "$docdir" != '${datarootdir}/doc/${PACKAGE_TARNAME}' || docdir='${datarootdir}/doc/gettext'
 
 dnl Checks for programs.
 AC_PROG_CC
 AC_PROG_INSTALL
-AC_PROG_YACC
 
 gt_JAVA_CHOICE
-
-gt_JAVACOMP([1.3], [1.1])
-AC_CHECK_PROG([JAR], [jar], [jar])
-if test -n "$HAVE_JAVACOMP" && test -n "$JAR" && test "$JAVA_CHOICE" != no; then
-  BUILDJAVA=yes
-else
+AS_IF([test "$JAVA_CHOICE" != no], [
+  gt_JAVACOMP([1.5], [1.6])
+  AC_CHECK_PROG([JAR], [jar], [jar])
+  if test -n "$HAVE_JAVACOMP" && test -n "$JAR"; then
+    BUILDJAVA=yes
+  else
+    BUILDJAVA=no
+  fi
+], [
+  gt_JAVACOMP_DISABLED
+  JAR=
   BUILDJAVA=no
-fi
+])
 AC_SUBST([BUILDJAVA])
 
 gt_CSHARPCOMP
@@ -59,10 +63,19 @@ dnl Checks for compiler output filename suffixes.
 AC_OBJEXT
 AC_EXEEXT
 
+dnl For a 64-bit build on AIX, AC_PROG_RANLIB is not sufficient.
+gl_PROG_AR_RANLIB
+
+dnl Set preferences for the gnulib module 'threadlib'.
+gl_AVOID_WINPTHREAD
+
 dnl Make sure we see all GNU and Solaris extensions.
 gl_EARLY
+AM_PROG_CC_C_O
 
 dnl Check for build configuration.
+
+gt_MORE_WARNINGS
 
 gl_WOE32_DLL
 
@@ -72,41 +85,38 @@ dnl Prepares the libtool configuration for handling of Windows resources, and
 dnl sets the RC variable to a program that compiles Windows resource files.
 LT_LANG([Windows Resource])
 
-dnl On mingw and Cygwin, we can activate special Makefile rules which add
-dnl version information to the shared libraries and executables.
+dnl On native Windows and Cygwin, we can activate special Makefile rules which
+dnl add version information to the shared libraries and executables.
 case "$host_os" in
-  mingw* | cygwin*) is_woe32=yes ;;
+  mingw* | windows* | cygwin*) is_woe32=yes ;;
   *) is_woe32=no ;;
 esac
 AM_CONDITIONAL([WOE32], [test $is_woe32 = yes])
+if test $is_woe32 = yes; then
+  dnl Check for a program that compiles Windows resource files.
+  AC_CHECK_TOOL([WINDRES], [windres])
+fi
+
+dnl Some code is only meant to be compiled on native Windows.
+case "$host_os" in
+  mingw* | windows*) is_windows_native=yes ;;
+  *) is_windows_native=no ;;
+esac
+AM_CONDITIONAL([WINDOWS_NATIVE], [test $is_windows_native = yes])
 
 dnl Checks for libraries.
 
 dnl These are the only lines required to internationalize the package.
 dnl (OK, not quite, the AC_CONFIG_FILES has also some parts.)
-AM_GNU_GETTEXT([use-libtool], [need-ngettext])
+AM_GNU_GETTEXT([use-libtool], [need-ngettext], [\${top_builddir}/intl])
 
 dnl Checks for header files, functions and declarations.
 gl_INIT
 AC_TYPE_SIZE_T
 AC_CHECK_FUNCS([setlocale])
 
-dnl Put some default definitions into config.h.
-AH_BOTTOM([
-/* On Windows, variables that may be in a DLL must be marked specially.  */
-#if (defined _MSC_VER && defined _DLL) && !defined IN_RELOCWRAPPER
-# define DLL_VARIABLE __declspec (dllimport)
-#else
-# define DLL_VARIABLE
-#endif
-
-/* Extra OS/2 (emx+gcc) defines.  */
-#ifdef __EMX__
-# include "intl/os2compat.h"
-#endif
-])
-
-dnl Compilation on mingw and Cygwin needs special Makefile rules, because
+dnl Compilation on native Windows and Cygwin needs special Makefile rules,
+dnl because
 dnl 1. when we install a shared library, we must arrange to export
 dnl    auxiliary pointer variables for every exported variable,
 dnl 2. when we install a shared library and a static library simultaneously,
@@ -115,25 +125,33 @@ dnl    must arrange to define the auxiliary pointer variables for the
 dnl    exported variables _also_ in the static library.
 if test "$enable_shared" = yes; then
   case "$host_os" in
-    mingw* | cygwin*) is_woe32dll=yes ;;
+    mingw* | windows* | cygwin*) is_woe32dll=yes ;;
     *) is_woe32dll=no ;;
   esac
 else
   is_woe32dll=no
 fi
 AM_CONDITIONAL([WOE32DLL], [test $is_woe32dll = yes])
-if test $is_woe32dll = yes; then
-  AC_DEFINE([WOE32DLL], [1],
-    [Define when --enable-shared is used on mingw or Cygwin.])
-fi
 
-INTL_EXPORTS_FLAGS=
-dnl 64-bit mingw does not prepend an underscore to C symbols.
-dnl USER_LABEL_PREFIX is set by gl_ASM_SYMBOL_PREFIX, inside gl_INIT.
-if test "$USER_LABEL_PREFIX" = _; then
-  INTL_EXPORTS_FLAGS="-DUSER_LABEL_PREFIX_UNDERSCORE $INTL_EXPORTS_FLAGS"
-fi
-AC_SUBST([INTL_EXPORTS_FLAGS])
+dnl Put some default definitions into config.h.
+AH_BOTTOM([
+/* On Windows, variables that may be in a DLL must be marked specially.
+   The symbols marked with DLL_VARIABLE should be exported if and only if the
+   object file gets included in a DLL.  Libtool, on Windows platforms, defines
+   the C macro DLL_EXPORT (together with PIC) when compiling for a shared
+   library (called DLL under Windows) and does not define it when compiling
+   an object file meant to be linked statically into some executable.  */
+#if (defined _WIN32 || defined __CYGWIN__) && defined DLL_EXPORT && !defined IN_RELOCWRAPPER
+# define DLL_VARIABLE __declspec (dllimport)
+#else
+# define DLL_VARIABLE
+#endif
+
+/* Extra OS/2 (emx+gcc) defines.  */
+#if defined __EMX__ && !defined __KLIBC__
+# include "intl/os2compat.h"
+#endif
+])
 
 dnl Check for tools needed for formatting the documentation.
 ac_aux_dir_abs=`cd $ac_aux_dir && pwd`
@@ -166,18 +184,23 @@ AC_ARG_ENABLE([libasprintf],
      SUBDIR_libasprintf=
    fi
   ], [SUBDIR_libasprintf=libasprintf])
-if test "$CXX" = ":"; then
+if test "$CXX" = "no"; then
   SUBDIR_libasprintf=
 fi
 AM_CONDITIONAL([ENABLE_LIBASPRINTF], [test -n "$SUBDIR_libasprintf"])
 
+dnl Determine variables used by uninstalled-config.sh.
+ENABLE_SHARED="$enable_shared"
+AC_SUBST([ENABLE_SHARED])
+
+AC_CONFIG_SUBDIRS([intl])
+
 AC_CONFIG_SUBDIRS([libasprintf])
 
 AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([uninstalled-config.sh])
 
 AC_CONFIG_FILES([doc/Makefile])
-
-AC_CONFIG_FILES([intl/Makefile])
 
 AC_CONFIG_FILES([intl-java/Makefile])
 

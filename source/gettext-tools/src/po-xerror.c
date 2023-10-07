@@ -1,5 +1,5 @@
 /* Error handling during reading and writing of PO files.
-   Copyright (C) 2005-2007 Free Software Foundation, Inc.
+   Copyright (C) 2005-2007, 2013, 2019, 2023 Free Software Foundation, Inc.
    Written by Bruno Haible <bruno@clisp.org>, 2005.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -28,13 +28,17 @@
 #include <stdlib.h>
 
 #include "message.h"
-#include "progname.h"
 #include "error-progname.h"
 #include "xalloc.h"
 #include "xerror.h"
 #include "error.h"
 #include "xvasprintf.h"
 #include "po-error.h"
+#if IN_LIBGETTEXTPO
+# define program_name getprogname ()
+#else
+# include "progname.h"
+#endif
 #include "gettext.h"
 
 #define _(str) gettext (str)

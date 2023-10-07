@@ -1,5 +1,5 @@
 /* GNU gettext - internationalization aids
-   Copyright (C) 1995-1999, 2000-2009, 2011 Free Software Foundation, Inc.
+   Copyright (C) 1995-2009, 2011, 2019, 2023 Free Software Foundation, Inc.
 
    This file was written by Peter Miller <millerp@canb.auug.org.au>.
    Multibyte character handling by Bruno Haible <haible@clisp.cons.org>.
@@ -15,7 +15,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #ifdef HAVE_CONFIG_H
@@ -66,6 +66,9 @@
 /* Current position within the PO file.  */
 lex_pos_ty gram_pos;
 int gram_pos_column;
+
+/* Whether the PO file is in the role of a POT file.  */
+bool gram_pot_role;
 
 
 /* Error handling during the parsing of a PO file.
@@ -462,8 +465,7 @@ mbfile_getc (mbchar_t mbc, mbfile_t mbf)
                       if (ferror (mbf->fp))
                         goto eof;
                       if (signal_eilseq)
-                        po_gram_error (_("\
-incomplete multibyte sequence at end of file"));
+                        po_gram_error (_("incomplete multibyte sequence at end of file"));
                       bytes = mbf->bufcount;
                       mbc->uc_valid = false;
                       break;
@@ -472,8 +474,7 @@ incomplete multibyte sequence at end of file"));
                   if (c == '\n')
                     {
                       if (signal_eilseq)
-                        po_gram_error (_("\
-incomplete multibyte sequence at end of line"));
+                        po_gram_error (_("incomplete multibyte sequence at end of line"));
                       bytes = mbf->bufcount - 1;
                       mbc->uc_valid = false;
                       break;
@@ -606,7 +607,8 @@ bool pass_obsolete_entries = false;
 
 /* Prepare lexical analysis.  */
 void
-lex_start (FILE *fp, const char *real_filename, const char *logical_filename)
+lex_start (FILE *fp, const char *real_filename, const char *logical_filename,
+           bool is_pot_role)
 {
   /* Ignore the logical_filename, because PO file entries already have
      their file names attached.  But use real_filename for error messages.  */
@@ -616,6 +618,7 @@ lex_start (FILE *fp, const char *real_filename, const char *logical_filename)
 
   gram_pos.line_number = 1;
   gram_pos_column = 0;
+  gram_pot_role = is_pot_role;
   signal_eilseq = true;
   po_lex_obsolete = false;
   po_lex_previous = false;
@@ -630,6 +633,7 @@ lex_end ()
   gram_pos.file_name = NULL;
   gram_pos.line_number = 0;
   gram_pos_column = 0;
+  gram_pot_role = false;
   signal_eilseq = false;
   po_lex_obsolete = false;
   po_lex_previous = false;

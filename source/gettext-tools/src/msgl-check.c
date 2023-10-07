@@ -1,5 +1,5 @@
 /* Checking of messages in PO files.
-   Copyright (C) 1995-1998, 2000-2008, 2010-2012 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
    Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>, April 1995.
 
    This program is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef HAVE_CONFIG_H
 # include <config.h>
@@ -23,8 +23,6 @@
 #include "msgl-check.h"
 
 #include <limits.h>
-#include <setjmp.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +38,10 @@
 #include "plural-table.h"
 #include "c-strstr.h"
 #include "message.h"
+#include "quote.h"
+#include "sentence.h"
+#include "unictype.h"
+#include "unistr.h"
 #include "gettext.h"
 
 #define _(str) gettext (str)
@@ -65,20 +67,14 @@ plural_expression_histogram (const struct plural_distribution *self,
       unsigned long n;
       unsigned int count;
 
-      /* Protect against arithmetic exceptions.  */
-      install_sigfpe_handler ();
-
       count = 0;
       for (n = min; n <= max; n++)
         {
-          unsigned long val = plural_eval (expr, n);
+          struct eval_result res = plural_eval (expr, n);
 
-          if (val == j)
+          if (res.status == PE_OK && res.value == j)
             count++;
         }
-
-      /* End of protection against arithmetic exceptions.  */
-      uninstall_sigfpe_handler ();
 
       return count;
     }
@@ -101,7 +97,7 @@ check_plural_eval (const struct expression *plural_expr,
   /* Do as if the plural formula assumes a value N infinitely often if it
      assumes it at least 5 times.  */
 #define OFTEN 5
-  unsigned char * volatile array;
+  unsigned char *array;
 
   /* Allocate a distribution array.  */
   if (nplurals_value <= 100)
@@ -110,99 +106,69 @@ check_plural_eval (const struct expression *plural_expr,
     /* nplurals_value is nonsense.  Don't risk an out-of-memory.  */
     array = NULL;
 
-  if (sigsetjmp (sigfpe_exit, 1) == 0)
+  unsigned long n;
+
+  for (n = 0; n <= 1000; n++)
     {
-      unsigned long n;
-
-      /* Protect against arithmetic exceptions.  */
-      install_sigfpe_handler ();
-
-      for (n = 0; n <= 1000; n++)
+      struct eval_result res = plural_eval (plural_expr, n);
+      if (res.status != PE_OK)
         {
-          unsigned long val = plural_eval (plural_expr, n);
+          if (res.status == PE_INTDIV)
+            po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false,
+                       _("plural expression can produce division by zero"));
+          else if (res.status == PE_INTOVF)
+            po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false,
+                       _("plural expression can produce integer overflow"));
+          else if (res.status == PE_STACKOVF)
+            po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false,
+                       _("plural expression can produce stack overflow"));
+          else
+            /* Other res.status values should not occur.  */
+            abort ();
 
-          if ((long) val < 0)
-            {
-              /* End of protection against arithmetic exceptions.  */
-              uninstall_sigfpe_handler ();
-
-              po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false,
-                         _("plural expression can produce negative values"));
-              free (array);
-              return 1;
-            }
-          else if (val >= nplurals_value)
-            {
-              char *msg;
-
-              /* End of protection against arithmetic exceptions.  */
-              uninstall_sigfpe_handler ();
-
-              msg = xasprintf (_("nplurals = %lu but plural expression can produce values as large as %lu"),
-                               nplurals_value, val);
-              po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false, msg);
-              free (msg);
-              free (array);
-              return 1;
-            }
-
-          if (array != NULL && array[val] < OFTEN)
-            array[val]++;
+          free (array);
+          return 1;
         }
 
-      /* End of protection against arithmetic exceptions.  */
-      uninstall_sigfpe_handler ();
+      unsigned long val = res.value;
 
-      /* Normalize the array[val] statistics.  */
-      if (array != NULL)
+      if ((long) val < 0)
         {
-          unsigned long val;
-
-          for (val = 0; val < nplurals_value; val++)
-            array[val] = (array[val] == OFTEN ? 1 : 0);
+          po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false,
+                     _("plural expression can produce negative values"));
+          free (array);
+          return 1;
+        }
+      else if (val >= nplurals_value)
+        {
+          char *msg =
+            xasprintf (_("nplurals = %lu but plural expression can produce values as large as %lu"),
+                       nplurals_value, val);
+          po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false, msg);
+          free (msg);
+          free (array);
+          return 1;
         }
 
-      distribution->expr = plural_expr;
-      distribution->often = array;
-      distribution->often_length = (array != NULL ? nplurals_value : 0);
-      distribution->histogram = plural_expression_histogram;
-
-      return 0;
+      if (array != NULL && array[val] < OFTEN)
+        array[val]++;
     }
-  else
+
+  /* Normalize the array[val] statistics.  */
+  if (array != NULL)
     {
-      /* Caught an arithmetic exception.  */
-      const char *msg;
+      unsigned long val;
 
-      /* End of protection against arithmetic exceptions.  */
-      uninstall_sigfpe_handler ();
-
-#if USE_SIGINFO
-      switch (sigfpe_code)
-#endif
-        {
-#if USE_SIGINFO
-# ifdef FPE_INTDIV
-        case FPE_INTDIV:
-          msg = _("plural expression can produce division by zero");
-          break;
-# endif
-# ifdef FPE_INTOVF
-        case FPE_INTOVF:
-          msg = _("plural expression can produce integer overflow");
-          break;
-# endif
-        default:
-#endif
-          msg = _("plural expression can produce arithmetic exceptions, possibly division by zero");
-        }
-
-      po_xerror (PO_SEVERITY_ERROR, header, NULL, 0, 0, false, msg);
-
-      free (array);
-
-      return 1;
+      for (val = 0; val < nplurals_value; val++)
+        array[val] = (array[val] == OFTEN ? 1 : 0);
     }
+
+  distribution->expr = plural_expr;
+  distribution->often = array;
+  distribution->often_length = (array != NULL ? nplurals_value : 0);
+  distribution->histogram = plural_expression_histogram;
+
+  return 0;
 #undef OFTEN
 }
 
@@ -608,16 +574,16 @@ check_pair (const message_ty *mp,
             {
               po_xerror (PO_SEVERITY_ERROR,
                          mp, msgid_pos->file_name, msgid_pos->line_number,
-                         (size_t)(-1), false, _("\
-'msgid' and 'msgid_plural' entries do not both begin with '\\n'"));
+                         (size_t)(-1), false,
+                         _("'msgid' and 'msgid_plural' entries do not both begin with '\\n'"));
               seen_errors++;
             }
           for (p = msgstr, j = 0; p < msgstr + msgstr_len; p += strlen (p) + 1, j++)
             if (TEST_NEWLINE(p) != has_newline)
               {
                 char *msg =
-                  xasprintf (_("\
-'msgid' and 'msgstr[%u]' entries do not both begin with '\\n'"), j);
+                  xasprintf (_("'msgid' and 'msgstr[%u]' entries do not both begin with '\\n'"),
+                             j);
                 po_xerror (PO_SEVERITY_ERROR,
                            mp, msgid_pos->file_name, msgid_pos->line_number,
                            (size_t)(-1), false, msg);
@@ -631,8 +597,8 @@ check_pair (const message_ty *mp,
             {
               po_xerror (PO_SEVERITY_ERROR,
                          mp, msgid_pos->file_name, msgid_pos->line_number,
-                         (size_t)(-1), false, _("\
-'msgid' and 'msgstr' entries do not both begin with '\\n'"));
+                         (size_t)(-1), false,
+                         _("'msgid' and 'msgstr' entries do not both begin with '\\n'"));
               seen_errors++;
             }
         }
@@ -649,16 +615,16 @@ check_pair (const message_ty *mp,
             {
               po_xerror (PO_SEVERITY_ERROR,
                          mp, msgid_pos->file_name, msgid_pos->line_number,
-                         (size_t)(-1), false, _("\
-'msgid' and 'msgid_plural' entries do not both end with '\\n'"));
+                         (size_t)(-1), false,
+                         _("'msgid' and 'msgid_plural' entries do not both end with '\\n'"));
               seen_errors++;
             }
           for (p = msgstr, j = 0; p < msgstr + msgstr_len; p += strlen (p) + 1, j++)
             if (TEST_NEWLINE(p) != has_newline)
               {
                 char *msg =
-                  xasprintf (_("\
-'msgid' and 'msgstr[%u]' entries do not both end with '\\n'"), j);
+                  xasprintf (_("'msgid' and 'msgstr[%u]' entries do not both end with '\\n'"),
+                             j);
                 po_xerror (PO_SEVERITY_ERROR,
                            mp, msgid_pos->file_name, msgid_pos->line_number,
                            (size_t)(-1), false, msg);
@@ -672,8 +638,8 @@ check_pair (const message_ty *mp,
             {
               po_xerror (PO_SEVERITY_ERROR,
                          mp, msgid_pos->file_name, msgid_pos->line_number,
-                         (size_t)(-1), false, _("\
-'msgid' and 'msgstr' entries do not both end with '\\n'"));
+                         (size_t)(-1), false,
+                         _("'msgid' and 'msgstr' entries do not both end with '\\n'"));
               seen_errors++;
             }
         }
@@ -684,8 +650,8 @@ check_pair (const message_ty *mp,
     {
       po_xerror (PO_SEVERITY_ERROR,
                  mp, msgid_pos->file_name, msgid_pos->line_number,
-                 (size_t)(-1), false, _("\
-plural handling is a GNU gettext extension"));
+                 (size_t)(-1), false,
+                 _("plural handling is a GNU gettext extension"));
       seen_errors++;
     }
 
@@ -732,6 +698,7 @@ plural handling is a GNU gettext extension"));
                          mp, msgid_pos->file_name, msgid_pos->line_number,
                          (size_t)(-1), false, msg);
               free (msg);
+              seen_errors++;
             }
           else if (count > 1)
             {
@@ -742,6 +709,7 @@ plural handling is a GNU gettext extension"));
                          mp, msgid_pos->file_name, msgid_pos->line_number,
                          (size_t)(-1), false, msg);
               free (msg);
+              seen_errors++;
             }
         }
     }
@@ -751,7 +719,7 @@ plural handling is a GNU gettext extension"));
 
 
 /* Perform miscellaneous checks on a header entry.  */
-static void
+static int
 check_header_entry (const message_ty *mp, const char *msgstr_string)
 {
   static const char *required_fields[] =
@@ -764,18 +732,29 @@ check_header_entry (const message_ty *mp, const char *msgstr_string)
   };
   static const char *default_values[] =
   {
-    "PACKAGE VERSION", "YEAR-MO-DA", "FULL NAME", "LANGUAGE", NULL,
+    "PACKAGE VERSION", "YEAR-MO-DA HO:MI+ZONE", "FULL NAME <EMAIL@ADDRESS>", "LANGUAGE <LL@li.org>", NULL,
     "text/plain; charset=CHARSET", "ENCODING",
     ""
   };
   const size_t nfields = SIZEOF (required_fields);
+  /* FIXME: We could check if a required header field is missing and
+     report it as error.  However, it's could be too rigorous and
+     break backward compatibility.  */
+#if 0
   const size_t nrequiredfields = nfields - 1;
+#endif
+  int seen_errors = 0;
   int cnt;
 
   for (cnt = 0; cnt < nfields; ++cnt)
     {
+#if 0
       int severity =
         (cnt < nrequiredfields ? PO_SEVERITY_ERROR : PO_SEVERITY_WARNING);
+#else
+      int severity =
+        PO_SEVERITY_WARNING;
+#endif
       const char *field = required_fields[cnt];
       size_t len = strlen (field);
       const char *line;
@@ -797,11 +776,13 @@ check_header_entry (const message_ty *mp, const char *msgstr_string)
                   p += strlen (default_values[cnt]);
                   if (*p == '\0' || *p == '\n')
                     {
-		      char *msg =
-			xasprintf (_("header field '%s' still has the initial default value\n"),
-				   field);
-		      po_xerror (severity, mp, NULL, 0, 0, true, msg);
-		      free (msg);
+                      char *msg =
+                        xasprintf (_("header field '%s' still has the initial default value\n"),
+                                   field);
+                      po_xerror (severity, mp, NULL, 0, 0, true, msg);
+                      free (msg);
+                      if (severity == PO_SEVERITY_ERROR)
+                        seen_errors++;
                     }
                 }
               break;
@@ -817,8 +798,11 @@ check_header_entry (const message_ty *mp, const char *msgstr_string)
                        field);
           po_xerror (severity, mp, NULL, 0, 0, true, msg);
           free (msg);
+          if (severity == PO_SEVERITY_ERROR)
+            seen_errors++;
         }
     }
+  return seen_errors;
 }
 
 
@@ -834,18 +818,21 @@ check_message (const message_ty *mp,
                int check_compatibility,
                int check_accelerators, char accelerator_char)
 {
-  if (check_header && is_header (mp))
-    check_header_entry (mp, mp->msgstr);
+  int seen_errors = 0;
 
-  return check_pair (mp,
-                     mp->msgid, msgid_pos, mp->msgid_plural,
-                     mp->msgstr, mp->msgstr_len,
-                     mp->is_format,
-                     check_newlines,
-                     check_format_strings,
-                     distribution,
-                     check_compatibility,
-                     check_accelerators, accelerator_char);
+  if (check_header && is_header (mp))
+    seen_errors += check_header_entry (mp, mp->msgstr);
+
+  seen_errors += check_pair (mp,
+                             mp->msgid, msgid_pos, mp->msgid_plural,
+                             mp->msgstr, mp->msgstr_len,
+                             mp->is_format,
+                             check_newlines,
+                             check_format_strings,
+                             distribution,
+                             check_compatibility,
+                             check_accelerators, accelerator_char);
+  return seen_errors;
 }
 
 
@@ -887,6 +874,309 @@ check_message_list (message_list_ty *mlp,
                                       &distribution,
                                       check_header, check_compatibility,
                                       check_accelerators, accelerator_char);
+    }
+
+  return seen_errors;
+}
+
+
+static int
+syntax_check_ellipsis_unicode (const message_ty *mp, const char *msgid)
+{
+  const char *str = msgid;
+  const char *str_limit = str + strlen (msgid);
+  int seen_errors = 0;
+
+  while (str < str_limit)
+    {
+      const char *end, *cp;
+      ucs4_t ending_char;
+
+      end = sentence_end (str, &ending_char);
+
+      /* sentence_end doesn't treat '...' specially.  */
+      cp = end - (ending_char == '.' ? 2 : 3);
+      if (cp >= str && memcmp (cp, "...", 3) == 0)
+        {
+          po_xerror (PO_SEVERITY_ERROR, mp, NULL, 0, 0, false,
+                     _("ASCII ellipsis ('...') instead of Unicode"));
+          seen_errors++;
+        }
+
+      str = end + 1;
+    }
+
+  return seen_errors;
+}
+
+
+static int
+syntax_check_space_ellipsis (const message_ty *mp, const char *msgid)
+{
+  const char *str = msgid;
+  const char *str_limit = str + strlen (msgid);
+  int seen_errors = 0;
+
+  while (str < str_limit)
+    {
+      const char *end, *ellipsis = NULL;
+      ucs4_t ending_char;
+
+      end = sentence_end (str, &ending_char);
+
+      if (ending_char == 0x2026)
+        ellipsis = end;
+      else if (ending_char == '.')
+        {
+          /* sentence_end doesn't treat '...' specially.  */
+          const char *cp = end - 2;
+          if (cp >= str && memcmp (cp, "...", 3) == 0)
+            ellipsis = cp;
+        }
+      else
+        {
+          /* Look for a '...'.  */
+          const char *cp = end - 3;
+          if (cp >= str && memcmp (cp, "...", 3) == 0)
+            ellipsis = cp;
+          else
+            {
+              ucs4_t uc = 0xfffd;
+
+              /* Look for a U+2026.  */
+              for (cp = end - 1; cp >= str; cp--)
+                {
+                  u8_mbtouc (&uc, (const unsigned char *) cp, end - cp);
+                  if (uc != 0xfffd)
+                    break;
+                }
+
+              if (uc == 0x2026)
+                ellipsis = cp;
+            }
+        }
+
+      if (ellipsis)
+        {
+          const char *cp;
+          ucs4_t uc = 0xfffd;
+
+          /* Look at the character before ellipsis.  */
+          for (cp = ellipsis - 1; cp >= str; cp--)
+            {
+              u8_mbtouc (&uc, (const unsigned char *) cp, ellipsis - cp);
+              if (uc != 0xfffd)
+                break;
+            }
+
+          if (uc != 0xfffd && uc_is_space (uc))
+            {
+              po_xerror (PO_SEVERITY_ERROR, mp, NULL, 0, 0, false,
+                         _("space before ellipsis found in user visible strings"));
+              seen_errors++;
+            }
+        }
+
+      str = end + 1;
+    }
+
+  return seen_errors;
+}
+
+
+struct callback_arg
+{
+  const message_ty *mp;
+  int seen_errors;
+};
+
+static void
+syntax_check_quote_unicode_callback (char quote, const char *quoted,
+                                     size_t quoted_length, void *data)
+{
+  struct callback_arg *arg = data;
+
+  switch (quote)
+    {
+    case '"':
+      po_xerror (PO_SEVERITY_ERROR, arg->mp, NULL, 0, 0, false,
+                 _("ASCII double quote used instead of Unicode"));
+      arg->seen_errors++;
+      break;
+
+    case '\'':
+      po_xerror (PO_SEVERITY_ERROR, arg->mp, NULL, 0, 0, false,
+                 _("ASCII single quote used instead of Unicode"));
+      arg->seen_errors++;
+      break;
+
+    default:
+      break;
+    }
+}
+
+static int
+syntax_check_quote_unicode (const message_ty *mp, const char *msgid)
+{
+  struct callback_arg arg;
+
+  arg.mp = mp;
+  arg.seen_errors = 0;
+
+  scan_quoted (msgid, strlen (msgid),
+               syntax_check_quote_unicode_callback, &arg);
+
+  return arg.seen_errors;
+}
+
+struct bullet_ty
+{
+  int c;
+  size_t depth;
+};
+
+struct bullet_stack_ty
+{
+  struct bullet_ty *items;
+  size_t nitems;
+  size_t nitems_max;
+};
+
+static struct bullet_stack_ty bullet_stack;
+
+static int
+syntax_check_bullet_unicode (const message_ty *mp, const char *msgid)
+{
+  const char *str = msgid;
+  const char *str_limit = str + strlen (msgid);
+  struct bullet_ty *last_bullet = NULL;
+  bool seen_error = false;
+
+  bullet_stack.nitems = 0;
+
+  while (str < str_limit)
+    {
+      const char *p = str, *end;
+
+      while (p < str_limit && c_isspace (*p))
+        p++;
+
+      if ((*p == '*' || *p == '-') && *(p + 1) == ' ')
+        {
+          size_t depth = p - str;
+          if (last_bullet == NULL || depth > last_bullet->depth)
+            {
+              struct bullet_ty bullet;
+
+              bullet.c = *p;
+              bullet.depth = depth;
+
+              if (bullet_stack.nitems >= bullet_stack.nitems_max)
+                {
+                  bullet_stack.nitems_max = 2 * bullet_stack.nitems_max + 4;
+                  bullet_stack.items = xrealloc (bullet_stack.items,
+                                                 bullet_stack.nitems_max
+                                                 * sizeof (struct bullet_ty));
+                }
+
+              last_bullet = &bullet_stack.items[bullet_stack.nitems++];
+              memcpy (last_bullet, &bullet, sizeof (struct bullet_ty));
+            }
+          else
+            {
+              if (depth < last_bullet->depth)
+                {
+                  if (bullet_stack.nitems > 1)
+                    {
+                      bullet_stack.nitems--;
+                      last_bullet =
+                        &bullet_stack.items[bullet_stack.nitems - 1];
+                    }
+                  else
+                    last_bullet = NULL;
+                }
+
+              if (last_bullet && depth == last_bullet->depth)
+                {
+                  if (last_bullet->c != *p)
+                    last_bullet->c = *p;
+                  else
+                    {
+                      seen_error = true;
+                      break;
+                    }
+                }
+            }
+        }
+      else
+        {
+          bullet_stack.nitems = 0;
+          last_bullet = NULL;
+        }
+
+      end = strchrnul (str, '\n');
+      str = end + 1;
+    }
+
+  if (seen_error)
+    {
+      char *msg;
+      msg = xasprintf (_("ASCII bullet ('%c') instead of Unicode"),
+                       last_bullet->c);
+      po_xerror (PO_SEVERITY_ERROR, mp, NULL, 0, 0, false, msg);
+      free (msg);
+      return 1;
+    }
+
+  return 0;
+}
+
+
+typedef int (* syntax_check_function) (const message_ty *mp, const char *msgid);
+static const syntax_check_function sc_funcs[NSYNTAXCHECKS] =
+{
+  syntax_check_ellipsis_unicode,
+  syntax_check_space_ellipsis,
+  syntax_check_quote_unicode,
+  syntax_check_bullet_unicode
+};
+
+/* Perform all syntax checks on a non-obsolete message.
+   Return the number of errors that were seen.  */
+static int
+syntax_check_message (const message_ty *mp)
+{
+  int seen_errors = 0;
+  int i;
+
+  for (i = 0; i < NSYNTAXCHECKS; i++)
+    {
+      if (mp->do_syntax_check[i] == yes)
+        {
+          seen_errors += sc_funcs[i] (mp, mp->msgid);
+          if (mp->msgid_plural)
+            seen_errors += sc_funcs[i] (mp, mp->msgid_plural);
+        }
+    }
+
+  return seen_errors;
+}
+
+
+/* Perform all syntax checks on a message list.
+   Return the number of errors that were seen.  */
+int
+syntax_check_message_list (message_list_ty *mlp)
+{
+  int seen_errors = 0;
+  size_t j;
+
+  for (j = 0; j < mlp->nitems; j++)
+    {
+      message_ty *mp = mlp->item[j];
+
+      if (!is_header (mp))
+        seen_errors += syntax_check_message (mp);
     }
 
   return seen_errors;

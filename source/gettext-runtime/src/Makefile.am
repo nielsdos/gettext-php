@@ -1,5 +1,5 @@
 ## Makefile for the gettext-runtime/src subdirectory of GNU gettext
-## Copyright (C) 1995-1998, 2000-2007, 2009 Free Software Foundation, Inc.
+## Copyright (C) 1995-1998, 2000-2007, 2009, 2019, 2023 Free Software Foundation, Inc.
 ##
 ## This program is free software: you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -12,7 +12,7 @@
 ## GNU General Public License for more details.
 ##
 ## You should have received a copy of the GNU General Public License
-## along with this program.  If not, see <http://www.gnu.org/licenses/>.
+## along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Process this file with automake to produce Makefile.in.
 
@@ -26,16 +26,19 @@ RM = rm -f
 
 bin_PROGRAMS = gettext ngettext envsubst
 
+# Note that Automake's $(DEFAULT_INCLUDES) already contains
+# -I. -I$(srcdir) -I$(top_builddir).
 AM_CPPFLAGS = \
-  -I. -I$(srcdir) \
-  -I.. \
   -I../intl -I$(srcdir)/../intl \
   -I../gnulib-lib -I$(srcdir)/../gnulib-lib
-DEFS = -DLOCALEDIR=\"$(localedir)\" @DEFS@
+DEFS = -DLOCALEDIR=$(localedir_c_make) @DEFS@
+
+# Enable more warning options in this directory.
+AM_CFLAGS = @WARN_CFLAGS@
 
 # Source dependencies.
-gettext_SOURCES = gettext.c
-ngettext_SOURCES = ngettext.c
+gettext_SOURCES = gettext.c escapes.h
+ngettext_SOURCES = ngettext.c escapes.h
 envsubst_SOURCES = envsubst.c
 
 # Link dependencies.
